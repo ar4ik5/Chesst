@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chess.tg</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <div class="brand">Chess<span>.tg</span></div>
+    <button class="iconbtn" id="btnMenu" aria-label="Меню">☰</button>
+  </header>
+  <div class="pbar" id="topBar"><div class="who"><span class="chip"></span><span class="nm"></span></div><div class="caps"></div></div>
+  <div id="status"></div>
+  <div id="boardWrap"><div id="board"></div></div>
+  <div class="pbar" id="botBar"><div class="who"><span class="chip"></span><span class="nm"></span></div><div class="caps"></div></div>
+  <div id="moves"></div>
+  <div class="tools">
+    <button id="btnUndo"><i>↩</i>Отмена</button>
+    <button id="btnFlip"><i>⇅</i>Повернуть</button>
+    <button id="btnResign"><i>⚑</i><span>Сдаться</span></button>
+    <button id="btnNew"><i>＋</i>Новая</button>
+  </div>
+</div>
+
+<!-- Меню -->
+<div class="overlay" id="menu">
+  <div class="sheet">
+    <h1>Chess<span>.tg</span></h1>
+    <p class="sub">Шахматы прямо в Telegram</p>
+    <div class="lab">Режим</div>
+    <div class="seg" data-k="mode">
+      <button data-v="bot" class="on">Против бота</button>
+      <button data-v="two">Вдвоём</button>
+    </div>
+    <div id="botOpts">
+      <div class="lab">Ваш цвет</div>
+      <div class="seg" data-k="side">
+        <button data-v="w" class="on">Белые</button>
+        <button data-v="b">Чёрные</button>
+        <button data-v="r">Случайно</button>
+      </div>
+      <div class="lab">Сложность</div>
+      <div class="seg" data-k="level">
+        <button data-v="1">Лёгкая</button>
+        <button data-v="2" class="on">Средняя</button>
+        <button data-v="3">Сильная</button>
+      </div>
+    </div>
+    <button class="cta" id="btnPlay">Играть</button>
+    <button class="cta alt hidden" id="btnContinue">Продолжить партию</button>
+  </div>
+</div>
+
+<!-- Превращение пешки -->
+<div class="overlay hidden" id="promo">
+  <div class="sheet"><h2>Превратить пешку</h2><div class="promo" id="promoBtns"></div></div>
+</div>
+
+<!-- Конец игры -->
+<div class="overlay hidden" id="end">
+  <div class="sheet">
+    <h2 id="endTitle"></h2>
+    <p class="sub" id="endText" style="margin:0"></p>
+    <button class="cta" id="btnAgain">Новая партия</button>
+    <button class="cta alt" id="btnView">Посмотреть доску</button>
+  </div>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/bot.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
