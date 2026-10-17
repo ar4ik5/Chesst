@@ -14,6 +14,27 @@ function hap(t){try{
   else if(t==='err')h.notificationOccurred('error');
 }catch(e){}}
 
+/* ---------- История партий (облако Telegram) ---------- */
+function sq2s(i){return FILES[i&7]+(8-(i>>3));}
+function saveHistory(){
+  try{
+    if(!tg||!tg.CloudStorage||!G||!G.over||G.saved)return;
+    G.saved=true;
+    const rec={d:Date.now(),m:G.cfg.mode,s:G.cfg.side,l:G.cfg.level,
+      r:G.over.winner||'d',t:G.over.title,
+      mv:G.moves.map(m=>sq2s(m.f)+sq2s(m.t)+(m.promo||'').toLowerCase()).join(' ')};
+    const cs=tg.CloudStorage;
+    cs.getItem('n',(e,v)=>{
+      const n=(+v||0)+1;
+      cs.setItem('g'+n,JSON.stringify(rec),()=>cs.setItem('n',String(n)));
+    });
+  }catch(e){}
+}
+function userName(){
+  const U=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user;
+  return U&&U.first_name?U.first_name:'Вы';
+}
+
 /* ---------- Состояние игры ---------- */
 const $=q=>document.querySelector(q);
 const GL={K:'\u265A',Q:'\u265B',R:'\u265C',B:'\u265D',N:'\u265E',P:'\u265F\uFE0E'};
@@ -26,7 +47,7 @@ function newGame(cfg,movesList){
   gid++;
   const side=cfg.side==='r'?(Math.random()<.5?'w':'b'):cfg.side;
   G={cfg:{mode:cfg.mode,side,level:+cfg.level},states:[initState()],moves:[],sans:[],
-     over:null,flip:cfg.mode==='bot'&&side==='b',sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1};
+     over:null,saved:false,flip:cfg.mode==='bot'&&side==='b',sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1};
   if(movesList){
     for(const mm of movesList){
       const m=legal(cur()).find(x=>x.f===mm.f&&x.t===mm.t&&(x.promo||'')===(mm.promo||''));
@@ -118,7 +139,10 @@ function commit(m){
   G.lastPop=m.t;
   clearSel();
   checkEnd();
-  if(G.over){hap(G.over.winner&&G.cfg.mode==='bot'&&G.over.winner!==G.cfg.side?'err':'ok');}
+  if(G.over){
+    hap(G.over.winner&&G.cfg.mode==='bot'&&G.over.winner!==G.cfg.side?'err':'ok');
+    saveHistory();
+  }
   else hap(m.cap?'cap':'move');
   save();
   renderAll();
@@ -185,7 +209,7 @@ function renderBars(){
   for(const p of s.b){if(p&&p[1]!=='K'){have[p[0]][p[1]]++;mat[p[0]]+=VAL[p[1]];}}
   const names=c=>{
     if(G.cfg.mode==='two')return c==='w'?'Белые':'Чёрные';
-    if(c===G.cfg.side)return 'Вы';
+    if(c===G.cfg.side)return userName();
     return 'Бот · '+({1:'лёгкий',2:'средний',3:'сильный'}[G.cfg.level]);
   };
   for(const [id,c] of [['#topBar',topC],['#botBar',botC]]){
@@ -250,7 +274,7 @@ $('#btnUndo').addEventListener('click',()=>{
   let n=bot?(cur().turn===G.cfg.side?2:1):1;
   n=Math.min(n,G.moves.length-min);
   for(let i=0;i<n;i++){G.states.pop();G.moves.pop();G.sans.pop();}
-  G.over=null;clearSel();gid++;
+  G.over=null;G.saved=false;clearSel();gid++;
   save();renderAll();maybeBot();
 });
 $('#btnResign').addEventListener('click',()=>{
@@ -265,6 +289,7 @@ $('#btnResign').addEventListener('click',()=>{
   const winner=loser==='w'?'b':'w';
   G.over={title:'Сдача',text:(loser==='w'?'Белые':'Чёрные')+' сдались',winner,resign:true};
   gid++;G.thinking=false;
+  saveHistory();
   save();renderAll();showEnd();
 });
 function disarm(){
