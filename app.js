@@ -18,7 +18,7 @@ function hap(t){try{
 function sq2s(i){return FILES[i&7]+(8-(i>>3));}
 function saveHistory(){
   try{
-    if(!tg||!tg.CloudStorage||!G||!G.over||G.saved)return;
+    if(!tg||!tg.CloudStorage||!G||!G.over||G.saved||G.review)return;
     G.saved=true;
     const rec={d:Date.now(),m:G.cfg.mode,s:G.cfg.side,l:G.cfg.level,
       r:G.over.winner||'d',t:G.over.title,
@@ -43,11 +43,11 @@ let G=null,gid=0,menuCfg={mode:'bot',side:'w',level:'2'},resignArmed=null;
 
 const cur=()=>G.states[G.states.length-1];
 
-function newGame(cfg,movesList){
+function newGame(cfg,movesList,review){
   gid++;
   const side=cfg.side==='r'?(Math.random()<.5?'w':'b'):cfg.side;
   G={cfg:{mode:cfg.mode,side,level:+cfg.level},states:[initState()],moves:[],sans:[],
-     over:null,saved:false,flip:cfg.mode==='bot'&&side==='b',sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1};
+     over:null,saved:false,review:!!review,flip:cfg.mode==='bot'&&side==='b',sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1};
   if(movesList){
     for(const mm of movesList){
       const m=legal(cur()).find(x=>x.f===mm.f&&x.t===mm.t&&(x.promo||'')===(mm.promo||''));
@@ -56,6 +56,7 @@ function newGame(cfg,movesList){
     }
     checkEnd();
   }
+  setRv(!!review);
   renderAll();
   maybeBot();
 }
@@ -81,6 +82,7 @@ function checkEnd(){
 }
 
 function save(){
+  if(G&&G.review)return;
   try{
     localStorage.setItem(SAVE_KEY,JSON.stringify({
       cfg:{mode:G.cfg.mode,side:G.cfg.side,level:G.cfg.level},
@@ -96,7 +98,7 @@ function loadSaved(){
 
 /* ---------- Ввод ---------- */
 function canInteract(){
-  return G&&!G.over&&!G.thinking&&$('#promo').classList.contains('hidden')&&
+  return G&&!G.review&&!G.over&&!G.thinking&&$('#promo').classList.contains('hidden')&&
     (G.cfg.mode==='two'||cur().turn===G.cfg.side);
 }
 function clearSel(){G.sel=-1;G.legalFrom=[];G.tset=new Set();}
@@ -187,6 +189,7 @@ function renderBoard(){
 function updateStatus(){
   const el=$('#status'),s=cur();
   el.className='';
+  if(G.review){el.textContent='Просмотр: ход '+G.moves.length+' из '+G.rvFull.moves.length;return;}
   if(G.over){
     el.textContent=G.over.title+(G.over.text?'. '+G.over.text:'');
     if(G.over.title==='Мат'||G.over.resign)el.className='alert';
@@ -303,7 +306,7 @@ $('#btnView').addEventListener('click',()=>$('#end').classList.add('hidden'));
 
 function openMenu(){
   const sv=loadSaved();
-  $('#btnContinue').classList.toggle('hidden',!(sv&&sv.moves.length&&!sv.over&&G));
+  $('#btnContinue').classList.toggle('hidden',!(sv&&sv.moves.length&&!sv.over&&G&&!G.review));
   $('#menu').classList.remove('hidden');
 }
 document.querySelectorAll('.seg').forEach(seg=>{
@@ -319,6 +322,97 @@ $('#btnPlay').addEventListener('click',()=>{
   newGame(menuCfg);save();
 });
 $('#btnContinue').addEventListener('click',()=>$('#menu').classList.add('hidden'));
+
+/* ---------- Экран истории ---------- */
+function parseMoves(str){
+  return str?str.split(' ').filter(Boolean).map(x=>({
+    f:FILES.indexOf(x[0])+(8-(+x[1]))*8,
+    t:FILES.indexOf(x[2])+(8-(+x[3]))*8,
+    promo:x[4]?x[4].toUpperCase():''
+  })):[];
+}
+function resultLabel(r){
+  if(r.r==='d')return ['Ничья','draw'];
+  if(r.m==='bot')return r.r===r.s?['Победа','win']:['Поражение','loss'];
+  return [(r.r==='w'?'Белые':'Чёрные')+' победили','win'];
+}
+function loadHistory(cb){
+  const cs=tg&&tg.CloudStorage;
+  if(!cs){cb(null);return;}
+  try{
+    cs.getItem('n',(e,v)=>{
+      const n=+v||0;
+      if(e||!n){cb([]);return;}
+      const keys=[];
+      for(let i=n;i>Math.max(0,n-20);i--)keys.push('g'+i);
+      cs.getItems(keys,(e2,vals)=>{
+        if(e2||!vals){cb([]);return;}
+        const out=[];
+        for(const k of keys){try{if(vals[k])out.push(JSON.parse(vals[k]));}catch(x){}}
+        cb(out);
+      });
+    });
+  }catch(e){cb([]);}
+}
+function showHistory(){
+  const box=$('#histList');
+  box.textContent='Загрузка…';
+  $('#hist').classList.remove('hidden');
+  loadHistory(list=>{
+    box.textContent='';
+    if(list===null){box.textContent='История доступна только в Telegram';return;}
+    if(!list.length){box.textContent='Сыгранных партий пока нет';return;}
+    for(const r of list){
+      const lr=resultLabel(r),row=document.createElement('div');
+      row.className='hi';
+      const info=document.createElement('div');info.className='hi-info';
+      const a=document.createElement('b');a.className=lr[1];a.textContent=lr[0];
+      const opp=r.m==='bot'?'Бот · '+({1:'лёгкий',2:'средний',3:'сильный'}[r.l]||''):'Вдвоём';
+      const dt=new Date(r.d),cnt=Math.ceil((r.mv?r.mv.split(' ').length:0)/2);
+      const b=document.createElement('span');
+      b.textContent=opp+' · '+cnt+' ход. · '+dt.toLocaleDateString('ru-RU')+' '+
+        dt.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+      info.append(a,b);
+      const btn=document.createElement('button');btn.textContent='Разобрать';
+      btn.addEventListener('click',()=>reviewGame(r));
+      row.append(info,btn);box.appendChild(row);
+    }
+  });
+}
+function setRv(on){
+  $('#rvBar').classList.toggle('hidden',!on);
+  document.querySelector('.tools').classList.toggle('hidden',on);
+}
+function reviewGame(r){
+  $('#hist').classList.add('hidden');$('#menu').classList.add('hidden');
+  newGame({mode:'two',side:'w',level:2},parseMoves(r.mv),true);
+  G.rvFull={states:G.states,moves:G.moves,sans:G.sans};
+  G.flip=r.m==='bot'&&r.s==='b';
+  rvGo(G.rvFull.moves.length);
+}
+function rvGo(i){
+  if(!G||!G.review)return;
+  const F=G.rvFull,n=F.moves.length;
+  i=Math.max(0,Math.min(n,i));
+  G.states=F.states.slice(0,i+1);G.moves=F.moves.slice(0,i);G.sans=F.sans.slice(0,i);
+  G.over=null;G.lastPop=-1;clearSel();
+  renderAll();
+  $('#rvFirst').disabled=$('#rvPrev').disabled=i===0;
+  $('#rvNext').disabled=$('#rvLast').disabled=i===n;
+}
+function exitReview(){
+  const sv=loadSaved();
+  if(sv&&sv.moves.length&&!sv.over)newGame({mode:sv.cfg.mode,side:sv.cfg.side,level:sv.cfg.level},sv.moves);
+  else newGame(menuCfg);
+  openMenu();
+}
+$('#rvFirst').addEventListener('click',()=>rvGo(0));
+$('#rvPrev').addEventListener('click',()=>rvGo(G.moves.length-1));
+$('#rvNext').addEventListener('click',()=>rvGo(G.moves.length+1));
+$('#rvLast').addEventListener('click',()=>rvGo(G.rvFull.moves.length));
+$('#rvExit').addEventListener('click',exitReview);
+$('#btnHistory').addEventListener('click',showHistory);
+$('#btnHistClose').addEventListener('click',()=>$('#hist').classList.add('hidden'));
 
 /* ---------- Старт ---------- */
 (function init(){
