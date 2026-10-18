@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chess Arena</title>
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+<div id="splash">
+  <div class="sp-cone"></div>
+  <img class="sp-logo" src="logo.svg" alt="">
+  <div class="sp-name">Chess<span>Arena</span></div>
+</div>
+
+<div id="app">
+  <header>
+    <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
+    <button class="iconbtn" id="btnMenu" aria-label="Меню">☰</button>
+  </header>
+  <div class="pbar" id="topBar"><div class="who"><span class="chip"></span><span class="nm"></span></div><div class="caps"></div></div>
+  <div id="status"></div>
+  <div id="boardWrap"><div id="board"></div></div>
+  <div class="pbar" id="botBar"><div class="who"><span class="chip"></span><span class="nm"></span></div><div class="caps"></div></div>
+  <div id="moves"></div>
+  <div class="tools">
+    <button id="btnUndo"><i>↩</i>Отмена</button>
+    <button id="btnFlip"><i>⇅</i>Повернуть</button>
+    <button id="btnResign"><i>⚑</i><span>Сдаться</span></button>
+    <button id="btnNew"><i>＋</i>Новая</button>
+  </div>
+  <div class="rv hidden" id="rvBar">
+    <button id="rvFirst" aria-label="В начало">⏮</button>
+    <button id="rvPrev" aria-label="Назад">◀</button>
+    <button id="rvNext" aria-label="Вперёд">▶</button>
+    <button id="rvLast" aria-label="В конец">⏭</button>
+    <button class="ex" id="rvExit">Выйти</button>
+  </div>
+</div>
+
+<!-- Меню -->
+<div class="overlay" id="menu">
+  <div class="sheet">
+    <h1>Chess<span>Arena</span></h1>
+    <p class="sub">Выходи на арену.</p>
+    <div class="lab">Режим</div>
+    <div class="seg" data-k="mode">
+      <button data-v="bot" class="on">Против бота</button>
+      <button data-v="two">Вдвоём</button>
+    </div>
+    <div id="botOpts">
+      <div class="lab">Ваш цвет</div>
+      <div class="seg" data-k="side">
+        <button data-v="w" class="on">Белые</button>
+        <button data-v="b">Чёрные</button>
+        <button data-v="r">Случайно</button>
+      </div>
+      <div class="lab">Сложность</div>
+      <div class="seg" data-k="level">
+        <button data-v="1">Лёгкая</button>
+        <button data-v="2" class="on">Средняя</button>
+        <button data-v="3">Сильная</button>
+      </div>
+    </div>
+    <button class="cta" id="btnPlay">Играть</button>
+    <button class="cta alt hidden" id="btnContinue">Продолжить партию</button>
+    <button class="cta alt" id="btnInvite">Играть с другом</button>
+    <button class="cta alt hidden" id="btnResumeOnline">Вернуться в онлайн-партию</button>
+    <button class="cta alt" id="btnHistory">История партий</button>
+  </div>
+</div>
+
+<!-- История -->
+<div class="overlay hidden" id="hist">
+  <div class="sheet">
+    <h2>История партий</h2>
+    <div id="histList"></div>
+    <button class="cta alt" id="btnHistClose">Закрыть</button>
+  </div>
+</div>
+
+<!-- Ожидание соперника -->
+<div class="overlay hidden" id="wait">
+  <div class="sheet">
+    <h2>Ждём соперника</h2>
+    <p class="sub" style="margin:0">Отправьте ссылку другу. Партия начнётся, когда он её откроет.</p>
+    <div class="linkbox" id="waitLink"></div>
+    <button class="cta" id="btnWaitShare">Отправить другу</button>
+    <button class="cta alt" id="btnWaitCopy">Копировать ссылку</button>
+    <button class="cta alt" id="btnWaitClose">Закрыть</button>
+  </div>
+</div>
+
+<!-- Превращение пешки -->
+<div class="overlay hidden" id="promo">
+  <div class="sheet"><h2>Превратить пешку</h2><div class="promo" id="promoBtns"></div></div>
+</div>
+
+<!-- Конец игры -->
+<div class="overlay hidden" id="end">
+  <div class="sheet">
+    <h2 id="endTitle"></h2>
+    <p class="sub" id="endText" style="margin:0"></p>
+    <button class="cta" id="btnAgain">Новая партия</button>
+    <button class="cta alt" id="btnView">Посмотреть доску</button>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="engine.js"></script>
+<script src="bot.js"></script>
+<script src="app.js"></script>
+<script>
+(function(){
+  var s=document.getElementById('splash');if(!s)return;
+  var t0=Date.now(),done=false;
+  function hide(){
+    if(done)return;done=true;
+    setTimeout(function(){
+      s.classList.add('out');
+      setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},450);
+    },Math.max(0,1500-(Date.now()-t0)));
+  }
+  if(document.readyState==='complete')hide();else window.addEventListener('load',hide);
+  setTimeout(hide,4000);
+})();
+</script>
+</body>
+</html>
