@@ -1,5 +1,5 @@
 "use strict";
-// Интерфейс, состояние партии, часы, интеграция с Telegram и Supabase Edge Function
+// Интерфейс, состояние партии, часы, профиль, интеграция с Telegram и Supabase Edge Function
 
 /* ---------- Telegram ---------- */
 const tg=(window.Telegram&&window.Telegram.WebApp)||null;
@@ -8,7 +8,7 @@ if(tg){try{
   if(tg.colorScheme){document.documentElement.setAttribute('data-theme',tg.colorScheme);document.documentElement.setAttribute('data-scheme',tg.colorScheme);}
 }catch(e){}}
 function hap(t){try{
-  const h=tg&&tg.HapticFeedback; if(!h)return;
+  const h=tg&&tg.HapticFeedback;if(!h)return;
   if(t==='move')h.selectionChanged();
   else if(t==='cap')h.impactOccurred('light');
   else if(t==='warn')h.notificationOccurred('warning');
@@ -45,7 +45,9 @@ document.addEventListener('pointerdown',e=>{
 const $=q=>document.querySelector(q);
 const GL={K:'\u265A',Q:'\u265B',R:'\u265C',B:'\u265D',N:'\u265E',P:'\u265F\uFE0E'};
 const SAVE_KEY='chesstg:v1';
+const PROF_KEY='chesstg:profile';
 let G=null,gid=0,menuCfg={mode:'bot',side:'w',level:'2',tc:'600+0'},resignArmed=null;
+let PROFILE=null; // кэш профиля
 
 const cur=()=>G.states[G.states.length-1];
 
@@ -86,8 +88,7 @@ function updateClocks(){
   const elapsed=G.clock.last?(Date.now()-G.clock.last):0;
   const timeOf=c=>G.clock[c]-(c===G.clock.active?elapsed:0);
   const fmt=ms=>{
-    ms=Math.max(0,ms);
-    const s=Math.floor(ms/1000);
+    ms=Math.max(0,ms);const s=Math.floor(ms/1000);
     return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
   };
   const topC=G.flip?'w':'b',botC=G.flip?'b':'w';
@@ -117,7 +118,7 @@ function newGame(cfg,movesList,review){
      flip:cfg.mode!=='two'&&side==='b',
      sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1,
      tc,clock:tc?{w:tc.base,b:tc.base,active:'w',last:0,timer:null}:null,
-     clockHist:[]};
+     clockHist:[],lastElo:null};
   if(movesList){
     for(const mm of movesList){
       const m=legal(cur()).find(x=>x.f===mm.f&&x.t===mm.t&&(x.promo||'')===(mm.promo||''));
@@ -210,11 +211,8 @@ function askPromo(ms){
 }
 
 function commit(m){
-  // --- Часы: списать текущее время ---
   if(G.clock&&!G.over){
-    if(G.clock.last){
-      G.clock[G.clock.active]-=(Date.now()-G.clock.last);
-    }
+    if(G.clock.last)G.clock[G.clock.active]-=(Date.now()-G.clock.last);
     G.clock.last=0;
     if(G.clock[G.clock.active]<=0){
       G.clock[G.clock.active]=0;stopClock();
@@ -232,7 +230,6 @@ function commit(m){
   clearSel();
   checkEnd();
 
-  // --- Часы: инкремент + передача ---
   if(G.clock&&!G.over){
     const mover=s.turn;
     G.clock[mover]+=G.tc.inc;
@@ -242,22 +239,22 @@ function commit(m){
   }
   if(G.over)stopClock();
 
-  if(G.over){
-    hap(G.over.winner&&G.cfg.mode!=='two'&&G.over.winner!==G.cfg.side?'err':'ok');
-    saveHistory();
-  }
+  if(G.over){hap(G.over.winner&&G.cfg.mode!=='two'&&G.over.winner!==G.cfg.side?'err':'ok');saveHistory();}
   else hap(inCheck(cur(),cur().turn)?'warn':(m.cap?'cap':'move'));
   save();
 
-  // --- Онлайн: отправляем ход на сервер ---
   if(G.cfg.mode==='online'&&G.online&&G.online.active){
     const mv=sq2s(m.f)+sq2s(m.t)+(m.promo||'').toLowerCase();
     rpc('move',{id:G.online.id,move:mv})
       .then(res=>{
-        if(res&&res.finished&&!G.over){
-          G.over={title:'Партия завершена',text:'Сервер: '+(res.title||res.result),
-            winner:res.result==='d'?undefined:res.result};
-          stopClock();renderAll();showEnd();
+        if(res&&res.finished){
+          if(res.elo)G.lastElo=res.elo;
+          if(!G.over){
+            G.over={title:'Партия завершена',text:'Сервер: '+(res.title||res.result),
+              winner:res.result==='d'?undefined:res.result};
+            stopClock();renderAll();showEnd();
+          }
+          loadProfile();
         }
       })
       .catch(err=>note('Ход не отправлен: '+err.message));
@@ -281,7 +278,7 @@ function maybeBot(){
   },380);
 }
 
-/* ---------- Рендер ---------- */
+/* ---------- Рендер доски ---------- */
 function renderBoard(){
   const s=cur(),chk=inCheck(s,s.turn)&&!G.over?kingSq(s.b,s.turn):(G.over&&G.over.title==='Мат'?kingSq(s.b,s.turn):-1);
   const last=G.moves.length?G.moves[G.moves.length-1]:null;
@@ -329,8 +326,8 @@ function renderBars(){
   for(const p of s.b){if(p&&p[1]!=='K'){have[p[0]][p[1]]++;mat[p[0]]+=VAL[p[1]];}}
   const names=c=>{
     if(G.cfg.mode==='two')return c==='w'?'Белые':'Чёрные';
-    if(G.cfg.mode==='online')return c===G.cfg.side?userName():((G.online&&G.online.oppName)||'Соперник');
-    if(c===G.cfg.side)return userName();
+    if(G.cfg.mode==='online')return c===G.cfg.side?(displayName()||'Вы'):((G.online&&G.online.oppName)||'Соперник');
+    if(c===G.cfg.side)return displayName()||'Вы';
     return 'Бот · '+({1:'лёгкий',2:'средний',3:'сильный'}[G.cfg.level]);
   };
   for(const [id,c] of [['#topBar',topC],['#botBar',botC]]){
@@ -381,6 +378,18 @@ function showEnd(){
   }
   $('#endTitle').textContent=title;
   $('#endText').textContent=text;
+
+  const eloLine=$('#endElo');
+  eloLine.textContent='';
+  if(G.lastElo&&G.cfg.mode==='online'){
+    const mine=G.cfg.side==='w'?G.lastElo.white:G.lastElo.black;
+    if(mine){
+      const sign=mine.delta>0?'+':'';
+      eloLine.textContent='Рейтинг: '+mine.before+' → '+mine.after+' ('+sign+mine.delta+')';
+      eloLine.style.color=mine.delta>0?'var(--st-live)':(mine.delta<0?'var(--destructive)':'var(--text-hint)');
+    }
+  }
+
   $('#end').classList.remove('hidden');
 }
 
@@ -403,7 +412,7 @@ $('#btnUndo').addEventListener('click',()=>{
       if(prev){G.clock.w=prev.w;G.clock.b=prev.b;}
     }
   }
-  G.over=null;G.saved=false;clearSel();gid++;
+  G.over=null;G.saved=false;G.lastElo=null;clearSel();gid++;
   save();renderAll();
   if(G.clock)startClock();
   maybeBot();
@@ -422,7 +431,9 @@ $('#btnResign').addEventListener('click',()=>{
   gid++;G.thinking=false;stopClock();
   saveHistory();
   if(G.cfg.mode==='online'&&G.online){
-    rpc('resign',{id:G.online.id}).catch(()=>{});
+    rpc('resign',{id:G.online.id})
+      .then(res=>{if(res&&res.elo){G.lastElo=res.elo;loadProfile();renderAll();}})
+      .catch(()=>{});
   }
   save();renderAll();showEnd();
 });
@@ -546,13 +557,14 @@ $('#rvExit').addEventListener('click',exitReview);
 $('#btnHistory').addEventListener('click',showHistory);
 $('#btnHistClose').addEventListener('click',()=>$('#hist').classList.add('hidden'));
 
-/* ---------- Онлайн (Supabase Edge Function) ---------- */
+/* ---------- Сеть ---------- */
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{if(v==null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}}
 function note(msg){try{if(tg&&tg.showAlert){tg.showAlert(msg);return;}}catch(e){}alert(msg);}
 function onlineReady(){const c=window.CFG||{};return !!(c.SUPA_URL&&c.SUPA_KEY&&c.BOT_LINK);}
 function fnUrl(){return (window.CFG.SUPA_URL||'')+'/functions/v1/game';}
 function initData(){return (tg&&tg.initData)||'';}
+function isTelegram(){return !!(tg&&tg.initData&&tg.initData.length>0);}
 
 async function rpc(op,payload){
   payload=payload||{};
@@ -571,6 +583,130 @@ async function rpc(op,payload){
   return data;
 }
 
+/* ---------- Профиль ---------- */
+const TIERS=[
+  {min:0,   name:'Новичок',    color:'var(--text-hint)'},
+  {min:800, name:'Ученик',     color:'#5C9BD6'},
+  {min:1000,name:'Любитель',   color:'#4FB4D3'},
+  {min:1200,name:'Игрок',      color:'#2AABEE'},
+  {min:1400,name:'Опытный',    color:'#39B08A'},
+  {min:1600,name:'Эксперт',    color:'#B585E0'},
+  {min:1800,name:'Кандидат',   color:'#E0A85C'},
+  {min:2000,name:'Мастер',     color:'#F0B23A'},
+  {min:2200,name:'Гроссмейстер',color:'#FF6B6B'},
+];
+function tierOf(elo){
+  let t=TIERS[0];
+  for(const x of TIERS)if(elo>=x.min)t=x;
+  return t;
+}
+function displayName(){
+  if(PROFILE)return PROFILE.display_name||PROFILE.first_name||'Игрок';
+  return userName();
+}
+
+async function loadProfile(){
+  if(!isTelegram())return null;
+  try{
+    const p=await rpc('profile_get');
+    PROFILE=p;
+    lsSet(PROF_KEY,JSON.stringify(p));
+    renderProfileMini();
+    return p;
+  }catch(e){
+    // при оффлайне пробуем кэш
+    const raw=lsGet(PROF_KEY);
+    if(raw){try{PROFILE=JSON.parse(raw);renderProfileMini();}catch(x){}}
+    return null;
+  }
+}
+function renderProfileMini(){
+  const el=$('#profMini');if(!el)return;
+  if(PROFILE&&PROFILE.photo_url){
+    el.innerHTML='<img src="'+PROFILE.photo_url+'" alt="">';
+  }else{
+    const n=displayName();
+    el.textContent=(n[0]||'?').toUpperCase();
+  }
+}
+function renderProfileMain(){
+  if(!PROFILE)return;
+  const p=PROFILE,t=tierOf(p.elo),name=displayName();
+
+  $('#profName').textContent=name;
+  $('#profRank').textContent=t.name;
+  $('#profRank').style.color=t.color;
+  $('#profElo').textContent=p.elo;
+  $('#profElo').style.color=t.color;
+
+  $('#profGames').textContent=p.games_played;
+  $('#profWins').textContent=p.wins;
+  $('#profLosses').textContent=p.losses;
+  $('#profDraws').textContent=p.draws;
+
+  const total=p.wins+p.losses+p.draws;
+  const w=total?(p.wins/total*100):0;
+  const d=total?(p.draws/total*100):0;
+  const l=total?(p.losses/total*100):0;
+  $('#profBarWin').style.width=w+'%';
+  $('#profBarDraw').style.width=d+'%';
+  $('#profBarLoss').style.width=l+'%';
+
+  const av=$('#profAvatar');
+  if(p.photo_url){
+    av.innerHTML='<img src="'+p.photo_url+'" alt="">';
+  }else{
+    av.textContent=(name[0]||'?').toUpperCase();
+  }
+  $('#profNameInput').value=name;
+}
+function openProfile(){
+  const sheetMain=$('#profMain'),sheetGuest=$('#profGuestContent');
+  if(!isTelegram()){
+    sheetMain.classList.add('hidden');
+    sheetGuest.classList.remove('hidden');
+    $('#profile').classList.remove('hidden');
+    return;
+  }
+  sheetMain.classList.remove('hidden');
+  sheetGuest.classList.add('hidden');
+  $('#profEdit').classList.add('hidden');
+  $('#profEditBtn').classList.remove('hidden');
+  $('#profile').classList.remove('hidden');
+
+  if(PROFILE)renderProfileMain();
+  loadProfile().then(p=>{if(p)renderProfileMain();});
+}
+function closeProfile(){ $('#profile').classList.add('hidden'); }
+
+$('#btnProfile').addEventListener('click',openProfile);
+$('#btnProfileMenu').addEventListener('click',openProfile);
+$('#profClose').addEventListener('click',closeProfile);
+$('#profGuestClose').addEventListener('click',closeProfile);
+$('#profGuestOpen').addEventListener('click',()=>{
+  const link=window.CFG.BOT_LINK||'https://t.me/TChess_bot';
+  try{if(tg&&tg.openTelegramLink){tg.openTelegramLink(link);return;}}catch(e){}
+  window.open(link,'_blank');
+});
+$('#profEditBtn').addEventListener('click',()=>{
+  $('#profEdit').classList.remove('hidden');
+  $('#profEditBtn').classList.add('hidden');
+  $('#profNameInput').focus();
+});
+$('#profSave').addEventListener('click',async()=>{
+  const v=$('#profNameInput').value.trim();
+  if(v.length<2){note('Имя слишком короткое');return;}
+  try{
+    const p=await rpc('profile_update',{patch:{display_name:v}});
+    PROFILE=p;lsSet(PROF_KEY,JSON.stringify(p));
+    renderProfileMain();renderProfileMini();
+    $('#profEdit').classList.add('hidden');
+    $('#profEditBtn').classList.remove('hidden');
+    hap('ok');
+  }catch(e){note('Не удалось сохранить: '+e.message);}
+});
+
+/* ---------- Онлайн ---------- */
 function movesStr(){return G.moves.map(m=>sq2s(m.f)+sq2s(m.t)+(m.promo||'').toLowerCase()).join(' ');}
 function gameLink(id){return window.CFG.BOT_LINK+'?startapp=g_'+id;}
 function stopOnline(){if(G&&G.online&&G.online.timer){clearInterval(G.online.timer);G.online.timer=null;}}
@@ -582,7 +718,6 @@ function applyRemote(list){
     const mm=list[i];
     const m=legal(cur()).find(x=>x.f===mm.f&&x.t===mm.t&&(x.promo||'')===(mm.promo||''));
     if(!m)break;
-    // Часы: списать время соперника и дать инкремент
     if(G.clock){
       if(G.clock.last){
         G.clock[G.clock.active]-=(Date.now()-G.clock.last);
@@ -619,9 +754,16 @@ async function pollOnline(){
     }
     const list=parseMoves(r.moves||'');
     if(list.length>G.moves.length)applyRemote(list);
-    if(r.status==='finished'&&!G.over&&(r.result==='w'||r.result==='b'||r.result==='d')){
-      G.over={title:'Партия завершена',text:'Результат: '+(r.result==='d'?'ничья':(r.result==='w'?'белые':'чёрные')),winner:r.result==='d'?undefined:r.result};
-      stopClock();saveHistory();renderAll();showEnd();
+    if(r.status==='finished'&&!G.over){
+      const result=r.result;
+      G.over={title:'Партия завершена',
+        text:'Результат: '+(result==='d'?'ничья':(result==='w'?'белые':'чёрные')),
+        winner:result==='d'?undefined:result};
+      if(r.white_elo_delta!=null||r.black_elo_delta!=null){
+        const dW=r.white_elo_delta||0,dB=r.black_elo_delta||0;
+        G.lastElo={white:{delta:dW,after:null,before:null},black:{delta:dB,after:null,before:null}};
+      }
+      stopClock();saveHistory();renderAll();showEnd();loadProfile();
     }
     if(r.status==='finished'&&G.over){stopOnline();lsSet('chesstg:online',null);}
     renderBars();updateStatus();
@@ -672,6 +814,7 @@ function copyLink(){
 }
 $('#btnInvite').addEventListener('click',()=>{
   if(!onlineReady()){note('Онлайн-игра ещё не настроена: заполните config.js');return;}
+  if(!isTelegram()){note('Онлайн-партии доступны только в Telegram');return;}
   createOnline().catch(err=>note('Не удалось создать партию: '+err.message));
 });
 $('#btnResumeOnline').addEventListener('click',()=>{const id=lsGet('chesstg:online');if(id)joinOnline(id);});
@@ -695,6 +838,12 @@ $('#btnWaitClose').addEventListener('click',()=>$('#wait').classList.add('hidden
   }
   $('#menu').classList.remove('hidden');
   refreshResume();
+
+  // Профиль
+  const cached=lsGet(PROF_KEY);
+  if(cached){try{PROFILE=JSON.parse(cached);renderProfileMini();}catch(e){}}
+  loadProfile();
+
   const sp=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.start_param;
   if(sp&&sp.indexOf('g_')===0)joinOnline(sp.slice(2));
 })();
