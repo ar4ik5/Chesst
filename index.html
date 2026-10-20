@@ -19,7 +19,12 @@
 <div id="app">
   <header>
     <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
-    <button class="iconbtn" id="btnMenu" aria-label="Меню">☰</button>
+    <div class="hbtns">
+      <button class="iconbtn prof-btn" id="btnProfile" aria-label="Профиль">
+        <span class="prof-mini" id="profMini">?</span>
+      </button>
+      <button class="iconbtn" id="btnMenu" aria-label="Меню">☰</button>
+    </div>
   </header>
 
   <div class="pbar" id="topBar">
@@ -83,7 +88,6 @@
         <button data-v="3">Сильная</button>
       </div>
     </div>
-
     <div class="lab">Время</div>
     <div class="seg" data-k="tc">
       <button data-v="0">Без часов</button>
@@ -95,7 +99,62 @@
     <button class="cta alt hidden" id="btnContinue">Продолжить партию</button>
     <button class="cta alt" id="btnInvite">Играть с другом</button>
     <button class="cta alt hidden" id="btnResumeOnline">Вернуться в онлайн-партию</button>
+    <button class="cta alt" id="btnProfileMenu">Мой профиль</button>
     <button class="cta alt" id="btnHistory">История партий</button>
+  </div>
+</div>
+
+<!-- Профиль -->
+<div class="overlay hidden" id="profile">
+  <div class="sheet" id="profSheet">
+
+    <!-- Нормальный профиль -->
+    <div id="profMain" class="hidden">
+      <div class="prof-head">
+        <div class="prof-avatar" id="profAvatar">?</div>
+        <div class="prof-id">
+          <div class="prof-name" id="profName">—</div>
+          <div class="prof-rank" id="profRank">—</div>
+        </div>
+        <button class="prof-close" id="profClose" aria-label="Закрыть">✕</button>
+      </div>
+
+      <div class="prof-elo">
+        <div class="prof-elo-num" id="profElo">1200</div>
+        <div class="prof-elo-lbl">рейтинг</div>
+      </div>
+
+      <div class="prof-bar">
+        <div class="pb pb-win"  id="profBarWin"></div>
+        <div class="pb pb-draw" id="profBarDraw"></div>
+        <div class="pb pb-loss" id="profBarLoss"></div>
+      </div>
+
+      <div class="prof-stats">
+        <div class="stat"><b id="profGames">0</b><span>Партий</span></div>
+        <div class="stat win"><b id="profWins">0</b><span>Побед</span></div>
+        <div class="stat loss"><b id="profLosses">0</b><span>Поражений</span></div>
+        <div class="stat draw"><b id="profDraws">0</b><span>Ничьих</span></div>
+      </div>
+
+      <div id="profEdit" class="hidden">
+        <div class="lab">Имя</div>
+        <input type="text" id="profNameInput" maxlength="30" autocomplete="off">
+        <button class="cta" id="profSave">Сохранить</button>
+      </div>
+
+      <button class="cta alt" id="profEditBtn">Изменить имя</button>
+    </div>
+
+    <!-- Гостевой режим -->
+    <div id="profGuestContent" class="hidden">
+      <h2>Гостевой режим</h2>
+      <p class="sub">Вы играете без Telegram. Рейтинг и статистика недоступны.</p>
+      <p class="sub">Откройте приложение через <b>@TChess_bot</b>, чтобы получить профиль.</p>
+      <button class="cta" id="profGuestOpen">Открыть в Telegram</button>
+      <button class="cta alt" id="profGuestClose">Закрыть</button>
+    </div>
+
   </div>
 </div>
 
@@ -130,6 +189,7 @@
   <div class="sheet">
     <h2 id="endTitle"></h2>
     <p class="sub" id="endText" style="margin:0"></p>
+    <p class="sub" id="endElo" style="margin:8px 0 0"></p>
     <button class="cta" id="btnAgain">Новая партия</button>
     <button class="cta alt" id="btnView">Посмотреть доску</button>
   </div>
