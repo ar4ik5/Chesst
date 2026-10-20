@@ -19,12 +19,14 @@ function evaluate(s){
   return v;
 }
 const orderScore=m=>(m.cap?10*VAL[m.cap]:0)+(m.promo?800:0)+(m.cs?30:0);
+
 function qs(s,a,b,d){
   const stand=(s.turn==='w'?1:-1)*evaluate(s);
   if(stand>=b)return b;
   if(d===0)return stand;
   if(stand>a)a=stand;
-  const caps=pseudo(s).filter(m=>m.cap).sort((x,y)=>orderScore(y)-orderScore(x));
+  // БЫЛО: .filter(m=>m.cap)  — теперь учитываем и превращения
+  const caps=pseudo(s).filter(m=>m.cap||m.promo).sort((x,y)=>orderScore(y)-orderScore(x));
   for(const m of caps){
     const ns=apply(s,m);
     if(attacked(ns.b,kingSq(ns.b,s.turn),ns.turn))continue;
@@ -34,6 +36,7 @@ function qs(s,a,b,d){
   }
   return a;
 }
+
 function search(s,d,a,b){
   const ms=legal(s);
   if(!ms.length)return inCheck(s,s.turn)?-100000-d:0;
@@ -47,6 +50,7 @@ function search(s,d,a,b){
   }
   return a;
 }
+
 function bestMove(s,level){
   const cfg={1:{d:1,noise:90},2:{d:2,noise:12},3:{d:3,noise:0}}[level]||{d:2,noise:12};
   const ms=legal(s);if(!ms.length)return null;
