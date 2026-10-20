@@ -21,10 +21,28 @@
     <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
     <button class="iconbtn" id="btnMenu" aria-label="Меню">☰</button>
   </header>
-  <div class="pbar" id="topBar"><div class="who"><span class="chip"></span><span class="nm"></span></div><div class="caps"></div></div>
+
+  <div class="pbar" id="topBar">
+    <div class="who">
+      <span class="chip"></span>
+      <span class="nm"></span>
+      <span class="time hidden"></span>
+    </div>
+    <div class="caps"></div>
+  </div>
+
   <div id="status"></div>
   <div id="boardWrap"><div id="board"></div></div>
-  <div class="pbar" id="botBar"><div class="who"><span class="chip"></span><span class="nm"></span></div><div class="caps"></div></div>
+
+  <div class="pbar" id="botBar">
+    <div class="who">
+      <span class="chip"></span>
+      <span class="nm"></span>
+      <span class="time hidden"></span>
+    </div>
+    <div class="caps"></div>
+  </div>
+
   <div id="moves"></div>
   <div class="tools">
     <button id="btnUndo"><i>↩</i>Отмена</button>
@@ -65,6 +83,14 @@
         <button data-v="3">Сильная</button>
       </div>
     </div>
+
+    <div class="lab">Время</div>
+    <div class="seg" data-k="tc">
+      <button data-v="0">Без часов</button>
+      <button data-v="180+2">3+2</button>
+      <button data-v="600+0" class="on">10+0</button>
+    </div>
+
     <button class="cta" id="btnPlay">Играть</button>
     <button class="cta alt hidden" id="btnContinue">Продолжить партию</button>
     <button class="cta alt" id="btnInvite">Играть с другом</button>
