@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 // ============================================================
-// 1. Верификация Telegram initData
+// 0. Env и клиент
 // ============================================================
 const BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -19,7 +19,19 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-async function verifyInitData(initData: string): Promise<{ id: number; name: string } | null> {
+// ============================================================
+// 1. Telegram initData
+// ============================================================
+type TgUser = {
+  id: number;
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  language_code?: string;
+};
+
+async function verifyInitData(initData: string): Promise<TgUser | null> {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash");
   if (!hash) return null;
@@ -32,11 +44,11 @@ async function verifyInitData(initData: string): Promise<{ id: number; name: str
 
   const enc = new TextEncoder();
   const key1 = await crypto.subtle.importKey(
-    "raw", enc.encode("WebAppData"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    "raw", enc.encode("WebAppData"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
   const secret = await crypto.subtle.sign("HMAC", key1, enc.encode(BOT_TOKEN));
   const key2 = await crypto.subtle.importKey(
-    "raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+    "raw", secret, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
   const sig = await crypto.subtle.sign("HMAC", key2, enc.encode(dataCheckString));
   const hex = [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -45,11 +57,113 @@ async function verifyInitData(initData: string): Promise<{ id: number; name: str
 
   const user = JSON.parse(params.get("user") || "null");
   if (!user?.id) return null;
-  return { id: user.id, name: user.first_name || "Игрок" };
+  return user as TgUser;
 }
 
 // ============================================================
-// 2. Шахматный движок (порт engine.js)
+// 2. Профили
+// ============================================================
+async function ensureProfile(user: TgUser) {
+  const { data, error } = await admin.from("profiles")
+    .upsert({
+      id: user.id,
+      username: user.username ?? null,
+      first_name: user.first_name ?? null,
+      last_name: user.last_name ?? null,
+      photo_url: user.photo_url ?? null,
+      lang: user.language_code ?? "ru",
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "id" })
+    .select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+async function getProfile(user: TgUser) {
+  // ensureProfile гарантирует существование
+  return await ensureProfile(user);
+}
+
+async function updateProfile(user: TgUser, patch: any) {
+  const allowed = ["display_name", "onboarded"];
+  const clean: Record<string, unknown> = {};
+  for (const k of allowed) if (k in patch) clean[k] = patch[k];
+
+  if (clean.display_name !== undefined) {
+    const n = String(clean.display_name).trim().slice(0, 30);
+    if (n.length < 2) throw new Error("name_too_short");
+    clean.display_name = n;
+  }
+  clean.updated_at = new Date().toISOString();
+
+  await ensureProfile(user);
+  const { data, error } = await admin.from("profiles")
+    .update(clean).eq("id", user.id).select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+// ============================================================
+// 3. ELO
+// ============================================================
+function kFactor(games: number) {
+  if (games < 30) return 32;
+  if (games < 100) return 24;
+  return 16;
+}
+
+async function updateRatings(
+  whiteId: number | null,
+  blackId: number | null,
+  result: "w" | "b" | "d",
+) {
+  if (!whiteId || !blackId) return null;
+  const { data: profs } = await admin.from("profiles")
+    .select("id, elo, games_played, wins, losses, draws")
+    .in("id", [whiteId, blackId]);
+  if (!profs || profs.length !== 2) return null;
+
+  const w = profs.find(p => Number(p.id) === Number(whiteId))!;
+  const b = profs.find(p => Number(p.id) === Number(blackId))!;
+
+  const ew = 1 / (1 + Math.pow(10, (b.elo - w.elo) / 400));
+  const eb = 1 - ew;
+  const sw = result === "w" ? 1 : result === "b" ? 0 : 0.5;
+  const sb = 1 - sw;
+
+  const kw = kFactor(w.games_played);
+  const kb = kFactor(b.games_played);
+  const dW = Math.round(kw * (sw - ew));
+  const dB = Math.round(kb * (sb - eb));
+  const newW = Math.max(100, w.elo + dW);
+  const newB = Math.max(100, b.elo + dB);
+
+  await admin.from("profiles").update({
+    elo: newW,
+    games_played: w.games_played + 1,
+    wins: w.wins + (sw === 1 ? 1 : 0),
+    losses: w.losses + (sw === 0 ? 1 : 0),
+    draws: w.draws + (sw === 0.5 ? 1 : 0),
+    updated_at: new Date().toISOString(),
+  }).eq("id", w.id);
+
+  await admin.from("profiles").update({
+    elo: newB,
+    games_played: b.games_played + 1,
+    wins: b.wins + (sb === 1 ? 1 : 0),
+    losses: b.losses + (sb === 0 ? 1 : 0),
+    draws: b.draws + (sb === 0.5 ? 1 : 0),
+    updated_at: new Date().toISOString(),
+  }).eq("id", b.id);
+
+  return {
+    white: { id: w.id, before: w.elo, after: newW, delta: dW },
+    black: { id: b.id, before: b.elo, after: newB, delta: dB },
+  };
+}
+
+// ============================================================
+// 4. Шахматный движок (порт engine.js)
 // ============================================================
 const FILES = "abcdefgh";
 const VAL = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0 };
@@ -68,11 +182,9 @@ function initState() {
 function attacked(b: (string|null)[], sq: number, by: "w"|"b"): boolean {
   const r = sq >> 3, c = sq & 7;
   const pr = by === "w" ? r + 1 : r - 1;
-  if (pr >= 0 && pr < 8) {
-    for (const dc of [-1, 1]) {
-      const cc = c + dc;
-      if (cc >= 0 && cc < 8 && b[pr*8+cc] === by + "P") return true;
-    }
+  if (pr >= 0 && pr < 8) for (const dc of [-1, 1]) {
+    const cc = c + dc;
+    if (cc >= 0 && cc < 8 && b[pr*8+cc] === by + "P") return true;
   }
   for (const [dr, dc] of N_D) {
     const rr = r + dr, cc = c + dc;
@@ -114,14 +226,14 @@ function pseudo(s: any): any[] {
       if (r1 < 0 || r1 > 7) continue;
       const t1 = r1 * 8 + c;
       if (!b[t1]) {
-        if (r1 === last) { for (const q of "QRBN") add(f, t1, { promo: q }); }
+        if (r1 === last) for (const q of "QRBN") add(f, t1, { promo: q });
         else { add(f, t1); if (r === start && !b[t1 + d * 8]) add(f, t1 + d * 8, { dbl: 1 }); }
       }
       for (const dc of [-1, 1]) {
         const cc = c + dc; if (cc < 0 || cc > 7) continue;
         const t2 = r1 * 8 + cc, q = b[t2];
         if (q && q[0] === opp) {
-          if (r1 === last) { for (const x of "QRBN") add(f, t2, { promo: x, cap: q[1] }); }
+          if (r1 === last) for (const x of "QRBN") add(f, t2, { promo: x, cap: q[1] });
           else add(f, t2, { cap: q[1] });
         } else if (!q && t2 === ep) add(f, t2, { cap: "P", ep: 1 });
       }
@@ -201,12 +313,7 @@ function insufficient(b: (string|null)[]) {
   return false;
 }
 
-// ============================================================
-// 3. Валидация ходов
-// ============================================================
-const FILES_STR = "abcdefgh";
-function sq(s: string): number { return FILES_STR.indexOf(s[0]) + (8 - +s[1]) * 8; }
-
+function sq(s: string): number { return "abcdefgh".indexOf(s[0]) + (8 - +s[1]) * 8; }
 function parseMoves(str: string): any[] {
   if (!str) return [];
   return str.split(" ").filter(Boolean).map(x => ({
@@ -214,13 +321,12 @@ function parseMoves(str: string): any[] {
     promo: x[4] ? x[4].toUpperCase() : "",
   }));
 }
-
 function replay(movesStrIn: string): { state: any; allStates: any[] } {
   let state = initState();
   const allStates = [state];
   for (const mm of parseMoves(movesStrIn)) {
     const lm = legal(state).find(x =>
-      x.f === mm.f && x.t === mm.t && (x.promo || "") === (mm.promo || "")
+      x.f === mm.f && x.t === mm.t && (x.promo || "") === (mm.promo || ""),
     );
     if (!lm) throw new Error("bad_history");
     state = apply(state, lm);
@@ -228,7 +334,6 @@ function replay(movesStrIn: string): { state: any; allStates: any[] } {
   }
   return { state, allStates };
 }
-
 function checkEnd(state: any, allStates: any[]): { over: boolean; result?: "w"|"b"|"d"; title?: string } {
   const ms = legal(state);
   if (!ms.length) {
@@ -248,28 +353,26 @@ function checkEnd(state: any, allStates: any[]): { over: boolean; result?: "w"|"
 }
 
 // ============================================================
-// 4. Handlers
+// 5. Игровые хендлеры
 // ============================================================
-async function createGame(user: { id: number; name: string }, color: "w" | "b") {
+async function createGame(user: TgUser, color: "w" | "b") {
   const insert = color === "w"
-    ? { white_id: user.id, white_name: user.name }
-    : { black_id: user.id, black_name: user.name };
+    ? { white_id: user.id, white_name: user.first_name || "Игрок" }
+    : { black_id: user.id, black_name: user.first_name || "Игрок" };
   const { data, error } = await admin.from("games").insert(insert).select("*").single();
   if (error) throw error;
   return { id: data.id, color, status: data.status, moves: data.moves };
 }
 
-async function joinGame(user: { id: number; name: string }, id: string) {
+async function joinGame(user: TgUser, id: string) {
   const { data: g, error } = await admin.from("games").select("*").eq("id", id).single();
   if (error || !g) throw new Error("not_found");
-
   if (String(g.white_id) === String(user.id)) return { id: g.id, color: "w", status: g.status, moves: g.moves };
   if (String(g.black_id) === String(user.id)) return { id: g.id, color: "b", status: g.status, moves: g.moves };
 
-  let color: "w" | "b";
-  let patch: Record<string, unknown>;
-  if (!g.black_id) { color = "b"; patch = { black_id: user.id, black_name: user.name, status: "active" }; }
-  else if (!g.white_id) { color = "w"; patch = { white_id: user.id, white_name: user.name, status: "active" }; }
+  let color: "w" | "b", patch: any;
+  if (!g.black_id) { color = "b"; patch = { black_id: user.id, black_name: user.first_name || "Игрок", status: "active" }; }
+  else if (!g.white_id) { color = "w"; patch = { white_id: user.id, white_name: user.first_name || "Игрок", status: "active" }; }
   else throw new Error("full");
 
   patch.updated_at = new Date().toISOString();
@@ -280,7 +383,7 @@ async function joinGame(user: { id: number; name: string }, id: string) {
   return { id: data.id, color, status: data.status, moves: data.moves };
 }
 
-async function makeMove(user: { id: number }, id: string, move: string) {
+async function makeMove(user: TgUser, id: string, move: string) {
   if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move)) throw new Error("bad_format");
 
   const { data: g, error } = await admin.from("games").select("*").eq("id", id).single();
@@ -297,9 +400,8 @@ async function makeMove(user: { id: number }, id: string, move: string) {
 
   const mm = parseMoves(move)[0];
   if (!mm) throw new Error("bad_format");
-
   const lm = legal(state).find(x =>
-    x.f === mm.f && x.t === mm.t && (x.promo || "") === (mm.promo || "")
+    x.f === mm.f && x.t === mm.t && (x.promo || "") === (mm.promo || ""),
   );
   if (!lm) throw new Error("illegal_move");
 
@@ -307,42 +409,50 @@ async function makeMove(user: { id: number }, id: string, move: string) {
   const newMoves = g.moves ? `${g.moves} ${move}` : move;
   const end = checkEnd(newState, [...allStates, newState]);
 
-  const patch: Record<string, unknown> = {
-    moves: newMoves,
-    updated_at: new Date().toISOString(),
-  };
-  if (end.over) { patch.status = "finished"; patch.result = end.result; }
+  const patch: any = { moves: newMoves, updated_at: new Date().toISOString() };
+  let elo = null;
+  if (end.over) {
+    patch.status = "finished";
+    patch.result = end.result;
+    elo = await updateRatings(g.white_id, g.black_id, end.result as "w"|"b"|"d");
+    if (elo) {
+      patch.white_elo_delta = elo.white.delta;
+      patch.black_elo_delta = elo.black.delta;
+    }
+  }
 
   const { error: e2 } = await admin.from("games").update(patch).eq("id", id);
   if (e2) throw e2;
 
-  return { ok: true, moves: newMoves, finished: end.over, result: end.result, title: end.title };
+  return { ok: true, moves: newMoves, finished: end.over, result: end.result, title: end.title, elo };
 }
 
-async function resign(user: { id: number }, id: string) {
+async function resign(user: TgUser, id: string) {
   const { data: g, error } = await admin.from("games").select("*").eq("id", id).single();
   if (error || !g) throw new Error("not_found");
+  if (g.status === "finished") return { ok: true, already: true };
   const isWhite = String(g.white_id) === String(user.id);
   const isBlack = String(g.black_id) === String(user.id);
   if (!isWhite && !isBlack) throw new Error("forbidden");
-  const result = isWhite ? "b" : "w";
-  const { error: e2 } = await admin.from("games")
-    .update({ status: "finished", result, updated_at: new Date().toISOString() })
-    .eq("id", id);
+  const result: "w" | "b" = isWhite ? "b" : "w";
+  const elo = await updateRatings(g.white_id, g.black_id, result);
+  const patch: any = { status: "finished", result, updated_at: new Date().toISOString() };
+  if (elo) { patch.white_elo_delta = elo.white.delta; patch.black_elo_delta = elo.black.delta; }
+  const { error: e2 } = await admin.from("games").update(patch).eq("id", id);
   if (e2) throw e2;
-  return { ok: true };
+  return { ok: true, elo };
 }
 
 async function getGame(id: string) {
   const { data, error } = await admin.from("games")
-    .select("id, white_id, white_name, black_id, black_name, moves, status, result, updated_at")
+    .select("id, white_id, white_name, black_id, black_name, moves, status, result, white_elo_delta, black_elo_delta, updated_at")
     .eq("id", id).single();
   if (error || !data) throw new Error("not_found");
   return data;
 }
 
 // ============================================================
-// 5. Роутер
+// 6. Роутер
 // ============================================================
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -355,11 +465,13 @@ serve(async (req) => {
 
     let res: unknown;
     switch (op) {
-      case "create": res = await createGame(user, body.color === "b" ? "b" : "w"); break;
-      case "join":   res = await joinGame(user, String(body.id)); break;
-      case "move":   res = await makeMove(user, String(body.id), String(body.move)); break;
-      case "resign": res = await resign(user, String(body.id)); break;
-      case "get":    res = await getGame(String(body.id)); break;
+      case "create":         res = await createGame(user, body.color === "b" ? "b" : "w"); break;
+      case "join":           res = await joinGame(user, String(body.id)); break;
+      case "move":           res = await makeMove(user, String(body.id), String(body.move)); break;
+      case "resign":         res = await resign(user, String(body.id)); break;
+      case "get":            res = await getGame(String(body.id)); break;
+      case "profile_get":    res = await getProfile(user); break;
+      case "profile_update": res = await updateProfile(user, body.patch || {}); break;
       default: return json({ error: "bad_op" }, 400);
     }
     return json(res);
