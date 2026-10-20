@@ -180,3 +180,15 @@ i.pc.pop{animation:land .18s ease-out}
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
+
+/* ---------- Часы ---------- */
+.who .time{
+  margin-left:6px; padding:1px 8px; border-radius:6px;
+  background:var(--bg-secondary);
+  font:600 13px/20px var(--font-mono);
+  color:var(--text-hint); flex:none;
+  transition:background .15s,color .15s;
+}
+.who .time.active{color:var(--text);background:var(--accent)}
+.who .time.low{color:var(--destructive)}
+.who .time.low.active{color:#fff;background:var(--destructive)}
