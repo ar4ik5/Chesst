@@ -16,175 +16,154 @@
   <div class="sp-name">Chess<span>Arena</span></div>
 </div>
 
+<!-- Контейнер приложения -->
 <div id="app">
-  <header>
-    <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
-    <div class="hbtns">
-      <button class="iconbtn prof-btn" id="btnProfile" aria-label="Профиль">
-        <span class="prof-mini" id="profMini">?</span>
-      </button>
-      <button class="iconbtn" id="btnMenu" aria-label="Меню">☰</button>
-    </div>
-  </header>
+  
+  <!-- ВКЛАДКА 1: ГЛАВНАЯ -->
+  <div class="tab-page" id="tab-home">
+    <header>
+      <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
+      <div class="header-icons">
+        <button class="iconbtn" id="btnGoProfile"><span class="prof-mini" id="homeMiniAvatar">?</span></button>
+      </div>
+    </header>
 
-  <div class="pbar" id="topBar">
-    <div class="who">
-      <span class="chip"></span>
-      <span class="nm"></span>
-      <span class="time hidden"></span>
+    <div class="hero-card">
+      <h2>Готов к бою?</h2>
+      <p>Сыграй быструю партию прямо сейчас</p>
+      <button class="cta" onclick="showTab('play')">Играть</button>
     </div>
-    <div class="caps"></div>
+
+    <div class="section-title">Статистика</div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="color:var(--st-live)">⚡</div>
+        <b id="homeElo">1200</b>
+        <span>Рейтинг</span>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🏆</div>
+        <b id="homeWins">0</b>
+        <span>Побед</span>
+      </div>
+    </div>
   </div>
 
+  <!-- ВКЛАДКА 2: НОВАЯ ИГРА -->
+  <div class="tab-page hidden" id="tab-play">
+    <header>
+      <h2 style="margin:0;font-size:24px">Новая партия</h2>
+    </header>
+
+    <div class="play-options">
+      <div class="option-row" id="playModeBtn">
+        <span class="opt-icon">👤</span>
+        <span class="opt-text" id="playModeText">Против бота</span>
+        <span class="opt-arrow">▼</span>
+      </div>
+      <div class="option-row" id="playSideBtn">
+        <span class="opt-icon">⚖️</span>
+        <span class="opt-text" id="playSideText">Белые</span>
+        <span class="opt-arrow">▼</span>
+      </div>
+      <div class="option-row" id="playLevelBtn">
+        <span class="opt-icon">🎚️</span>
+        <span class="opt-text" id="playLevelText">Средний</span>
+        <span class="opt-arrow">▼</span>
+      </div>
+    </div>
+
+    <div class="section-title">Контроль времени</div>
+    <div class="seg tc-seg" data-k="tc">
+      <button data-v="0">∞</button>
+      <button data-v="180+2">3+2</button>
+      <button data-v="600+0" class="on">10+0</button>
+    </div>
+
+    <button class="cta" id="btnStartGame" style="margin-top:24px;background:var(--st-live);box-shadow:0 4px 0 #248c3f">Начать партию</button>
+    
+    <button class="cta alt" id="btnInvite" style="margin-top:16px">🤝 Играть с другом (онлайн)</button>
+  </div>
+
+  <!-- ВКЛАДКА 3: ПРОФИЛЬ -->
+  <div class="tab-page hidden" id="tab-profile">
+    <header>
+      <h2 style="margin:0;font-size:24px">Профиль</h2>
+      <button class="iconbtn" id="btnSettings">⚙️</button>
+    </header>
+
+    <div class="prof-header-main" id="profileContent">
+      <!-- Данные рендерятся через JS -->
+    </div>
+  </div>
+
+  <!-- НИЖНЕЕ МЕНЮ -->
+  <nav class="bottom-nav" id="bottomNav">
+    <button class="nav-btn active" data-tab="home">
+      <i>🏠</i><span>Главная</span>
+    </button>
+    <button class="nav-btn" data-tab="play">
+      <i>♟️</i><span>Играть</span>
+    </button>
+    <button class="nav-btn" data-tab="profile">
+      <i>👤</i><span>Профиль</span>
+    </button>
+  </nav>
+</div>
+
+<!-- ЭКРАН ИГРЫ (скрывает навигацию) -->
+<div id="gameView" class="hidden">
+  <header style="padding:0 12px">
+    <button class="iconbtn" id="btnCloseGame" style="background:none">←</button>
+    <div class="brand" style="font-size:16px">Chess Arena</div>
+    <div style="width:44px"></div> <!-- Spacer -->
+  </header>
+  
+  <div class="pbar" id="topBar">
+    <div class="who"><span class="chip"></span><span class="nm"></span><span class="time hidden"></span></div>
+    <div class="caps"></div>
+  </div>
+  
   <div id="status"></div>
   <div id="boardWrap"><div id="board"></div></div>
-
+  
   <div class="pbar" id="botBar">
-    <div class="who">
-      <span class="chip"></span>
-      <span class="nm"></span>
-      <span class="time hidden"></span>
-    </div>
+    <div class="who"><span class="chip"></span><span class="nm"></span><span class="time hidden"></span></div>
     <div class="caps"></div>
   </div>
-
+  
   <div id="moves"></div>
   <div class="tools">
     <button id="btnUndo"><i>↩</i>Отмена</button>
     <button id="btnFlip"><i>⇅</i>Повернуть</button>
     <button id="btnResign"><i>⚑</i><span>Сдаться</span></button>
-    <button id="btnNew"><i>＋</i>Новая</button>
-  </div>
-  <div class="rv hidden" id="rvBar">
-    <button id="rvFirst" aria-label="В начало">⏮</button>
-    <button id="rvPrev" aria-label="Назад">◀</button>
-    <button id="rvNext" aria-label="Вперёд">▶</button>
-    <button id="rvLast" aria-label="В конец">⏭</button>
-    <button class="ex" id="rvExit">Выйти</button>
   </div>
 </div>
 
-<!-- Меню -->
-<div class="overlay" id="menu">
+<!-- Оверлеи: Выбор опций, Конец игры, Ожидание, Превращение, История -->
+<div class="overlay hidden" id="optSelect">
   <div class="sheet">
-    <h1>Chess<span>Arena</span></h1>
-    <p class="sub">Выходи на арену.</p>
-    <div class="lab">Режим</div>
-    <div class="seg" data-k="mode">
-      <button data-v="bot" class="on">Против бота</button>
-      <button data-v="two">Вдвоём</button>
-    </div>
-    <div id="botOpts">
-      <div class="lab">Ваш цвет</div>
-      <div class="seg" data-k="side">
-        <button data-v="w" class="on">Белые</button>
-        <button data-v="b">Чёрные</button>
-        <button data-v="r">Случайно</button>
-      </div>
-      <div class="lab">Сложность</div>
-      <div class="seg" data-k="level">
-        <button data-v="1">Лёгкая</button>
-        <button data-v="2" class="on">Средняя</button>
-        <button data-v="3">Сильная</button>
-      </div>
-    </div>
-    <div class="lab">Время</div>
-    <div class="seg" data-k="tc">
-      <button data-v="0">Без часов</button>
-      <button data-v="180+2">3+2</button>
-      <button data-v="600+0" class="on">10+0</button>
-    </div>
-
-    <button class="cta" id="btnPlay">Играть</button>
-    <button class="cta alt hidden" id="btnContinue">Продолжить партию</button>
-    <button class="cta alt" id="btnInvite">Играть с другом</button>
-    <button class="cta alt hidden" id="btnResumeOnline">Вернуться в онлайн-партию</button>
-    <button class="cta alt" id="btnProfileMenu">Мой профиль</button>
-    <button class="cta alt" id="btnHistory">История партий</button>
+    <h2 id="optTitle">Выберите</h2>
+    <div id="optList" class="opt-list"></div>
+    <button class="cta alt" onclick="closeOpts()">Отмена</button>
   </div>
 </div>
 
-<!-- Профиль -->
-<div class="overlay hidden" id="profile">
-  <div class="sheet" id="profSheet">
-
-    <!-- Нормальный профиль -->
-    <div id="profMain" class="hidden">
-      <div class="prof-head">
-        <div class="prof-avatar" id="profAvatar">?</div>
-        <div class="prof-id">
-          <div class="prof-name" id="profName">—</div>
-          <div class="prof-rank" id="profRank">—</div>
-        </div>
-        <button class="prof-close" id="profClose" aria-label="Закрыть">✕</button>
-      </div>
-
-      <div class="prof-elo">
-        <div class="prof-elo-num" id="profElo">1200</div>
-        <div class="prof-elo-lbl">рейтинг</div>
-      </div>
-
-      <div class="prof-bar">
-        <div class="pb pb-win"  id="profBarWin"></div>
-        <div class="pb pb-draw" id="profBarDraw"></div>
-        <div class="pb pb-loss" id="profBarLoss"></div>
-      </div>
-
-      <div class="prof-stats">
-        <div class="stat"><b id="profGames">0</b><span>Партий</span></div>
-        <div class="stat win"><b id="profWins">0</b><span>Побед</span></div>
-        <div class="stat loss"><b id="profLosses">0</b><span>Поражений</span></div>
-        <div class="stat draw"><b id="profDraws">0</b><span>Ничьих</span></div>
-      </div>
-
-      <div id="profEdit" class="hidden">
-        <div class="lab">Имя</div>
-        <input type="text" id="profNameInput" maxlength="30" autocomplete="off">
-        <button class="cta" id="profSave">Сохранить</button>
-      </div>
-
-      <button class="cta alt" id="profEditBtn">Изменить имя</button>
-    </div>
-
-    <!-- Гостевой режим -->
-    <div id="profGuestContent" class="hidden">
-      <h2>Гостевой режим</h2>
-      <p class="sub">Вы играете без Telegram. Рейтинг и статистика недоступны.</p>
-      <p class="sub">Откройте приложение через <b>@TChess_bot</b>, чтобы получить профиль.</p>
-      <button class="cta" id="profGuestOpen">Открыть в Telegram</button>
-      <button class="cta alt" id="profGuestClose">Закрыть</button>
-    </div>
-
-  </div>
-</div>
-
-<!-- История -->
-<div class="overlay hidden" id="hist">
-  <div class="sheet">
-    <h2>История партий</h2>
-    <div id="histList"></div>
-    <button class="cta alt" id="btnHistClose">Закрыть</button>
-  </div>
-</div>
-
-<!-- Ожидание соперника -->
 <div class="overlay hidden" id="wait">
   <div class="sheet">
     <h2>Ждём соперника</h2>
-    <p class="sub" style="margin:0">Отправьте ссылку другу. Партия начнётся, когда он её откроет.</p>
+    <p class="sub" style="margin:0">Отправьте ссылку другу.</p>
     <div class="linkbox" id="waitLink"></div>
     <button class="cta" id="btnWaitShare">Отправить другу</button>
     <button class="cta alt" id="btnWaitCopy">Копировать ссылку</button>
-    <button class="cta alt" id="btnWaitClose">Закрыть</button>
+    <button class="cta alt" id="btnWaitClose">Отмена</button>
   </div>
 </div>
 
-<!-- Превращение пешки -->
 <div class="overlay hidden" id="promo">
   <div class="sheet"><h2>Превратить пешку</h2><div class="promo" id="promoBtns"></div></div>
 </div>
 
-<!-- Конец игры -->
 <div class="overlay hidden" id="end">
   <div class="sheet">
     <h2 id="endTitle"></h2>
@@ -203,13 +182,7 @@
 (function(){
   var s=document.getElementById('splash');if(!s)return;
   var t0=Date.now(),done=false;
-  function hide(){
-    if(done)return;done=true;
-    setTimeout(function(){
-      s.classList.add('out');
-      setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},450);
-    },Math.max(0,1500-(Date.now()-t0)));
-  }
+  function hide(){ if(done)return; done=true; setTimeout(function(){ s.classList.add('out'); setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},450); },Math.max(0,1500-(Date.now()-t0))); }
   if(document.readyState==='complete')hide();else window.addEventListener('load',hide);
   setTimeout(hide,4000);
 })();
