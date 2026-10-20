@@ -1,5 +1,6 @@
 "use strict";
-// Интерфейс, состояние партии, интеграция с Telegram
+// Интерфейс, состояние партии, часы, интеграция с Telegram и Supabase Edge Function
+
 /* ---------- Telegram ---------- */
 const tg=(window.Telegram&&window.Telegram.WebApp)||null;
 if(tg){try{
@@ -44,25 +45,91 @@ document.addEventListener('pointerdown',e=>{
 const $=q=>document.querySelector(q);
 const GL={K:'\u265A',Q:'\u265B',R:'\u265C',B:'\u265D',N:'\u265E',P:'\u265F\uFE0E'};
 const SAVE_KEY='chesstg:v1';
-let G=null,gid=0,menuCfg={mode:'bot',side:'w',level:'2'},resignArmed=null;
+let G=null,gid=0,menuCfg={mode:'bot',side:'w',level:'2',tc:'600+0'},resignArmed=null;
 
 const cur=()=>G.states[G.states.length-1];
 
+/* ---------- Часы ---------- */
+function parseTc(str){
+  if(!str||str==='0')return null;
+  const [b,i]=String(str).split('+').map(Number);
+  if(!isFinite(b)||b<=0)return null;
+  return {base:Math.round(b*1000),inc:Math.round((i||0)*1000)};
+}
+function startClock(){
+  if(!G||!G.clock||G.over)return;
+  stopClock();
+  G.clock.active=cur().turn;
+  G.clock.last=Date.now();
+  G.clock.timer=setInterval(tickClock,200);
+  updateClocks();
+}
+function stopClock(){
+  if(!G||!G.clock)return;
+  if(G.clock.timer){clearInterval(G.clock.timer);G.clock.timer=null;}
+}
+function tickClock(){
+  if(!G||!G.clock||G.over){stopClock();return;}
+  const active=G.clock.active;
+  const elapsed=G.clock.last?(Date.now()-G.clock.last):0;
+  if(G.clock[active]-elapsed<=0){
+    G.clock[active]=0;stopClock();
+    const winner=active==='w'?'b':'w';
+    G.over={title:'Время',text:(active==='w'?'Белые':'Чёрные')+' просрочили время',winner};
+    hap('err');saveHistory();renderAll();setTimeout(showEnd,200);
+    return;
+  }
+  updateClocks();
+}
+function updateClocks(){
+  if(!G||!G.clock)return;
+  const elapsed=G.clock.last?(Date.now()-G.clock.last):0;
+  const timeOf=c=>G.clock[c]-(c===G.clock.active?elapsed:0);
+  const fmt=ms=>{
+    ms=Math.max(0,ms);
+    const s=Math.floor(ms/1000);
+    return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  };
+  const topC=G.flip?'w':'b',botC=G.flip?'b':'w';
+  const set=(sel,c)=>{
+    const el=document.querySelector(sel);if(!el)return;
+    const t=timeOf(c);
+    el.textContent=fmt(t);
+    el.classList.toggle('low',t<30000);
+    el.classList.toggle('active',c===G.clock.active&&!G.over);
+    el.classList.remove('hidden');
+  };
+  set('#topBar .who .time',topC);
+  set('#botBar .who .time',botC);
+}
+function hideClocks(){
+  document.querySelectorAll('.pbar .who .time').forEach(e=>e.classList.add('hidden'));
+}
+
+/* ---------- Инициализация партии ---------- */
 function newGame(cfg,movesList,review){
-  gid++;stopOnline();
+  gid++;stopOnline();stopClock();
   const side=cfg.side==='r'?(Math.random()<.5?'w':'b'):cfg.side;
-  G={cfg:{mode:cfg.mode,side,level:+cfg.level},states:[initState()],moves:[],sans:[],
-     over:null,saved:false,review:!!review,flip:cfg.mode!=='two'&&side==='b',sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1};
+  const tc=review?null:parseTc(cfg.tc);
+  G={cfg:{mode:cfg.mode,side,level:+cfg.level,tc:cfg.tc},
+     states:[initState()],moves:[],sans:[],
+     over:null,saved:false,review:!!review,
+     flip:cfg.mode!=='two'&&side==='b',
+     sel:-1,legalFrom:[],tset:new Set(),thinking:false,lastPop:-1,
+     tc,clock:tc?{w:tc.base,b:tc.base,active:'w',last:0,timer:null}:null,
+     clockHist:[]};
   if(movesList){
     for(const mm of movesList){
       const m=legal(cur()).find(x=>x.f===mm.f&&x.t===mm.t&&(x.promo||'')===(mm.promo||''));
       if(!m)break;
       G.sans.push(toSAN(cur(),m));G.states.push(apply(cur(),m));G.moves.push(m);
+      if(G.clock)G.clockHist.push({w:G.clock.w,b:G.clock.b});
     }
     checkEnd();
   }
   setRv(!!review);
   renderAll();
+  if(G.clock&&!review)startClock();
   maybeBot();
 }
 
@@ -82,7 +149,7 @@ function checkEnd(){
   else{
     const k=posKey(s);let n=0;
     for(const x of G.states)if(posKey(x)===k)n++;
-    if(n>=3)G.over={title:'Ничья',text:'Трёхкратное повторение позиции'};
+    if(n>=3)G.over={title:'Ничья',text:'Троекратное повторение позиции'};
   }
 }
 
@@ -90,9 +157,10 @@ function save(){
   if(G&&(G.review||G.cfg.mode==='online'))return;
   try{
     localStorage.setItem(SAVE_KEY,JSON.stringify({
-      cfg:{mode:G.cfg.mode,side:G.cfg.side,level:G.cfg.level},
+      cfg:{mode:G.cfg.mode,side:G.cfg.side,level:G.cfg.level,tc:G.cfg.tc},
       moves:G.moves.map(m=>({f:m.f,t:m.t,promo:m.promo||''})),
-      over:!!(G.over&&G.over.resign)
+      over:!!(G.over&&G.over.resign),
+      clock:G.clock?{w:G.clock.w,b:G.clock.b,active:G.clock.active}:null
     }));
   }catch(e){}
 }
@@ -142,18 +210,59 @@ function askPromo(ms){
 }
 
 function commit(m){
+  // --- Часы: списать текущее время ---
+  if(G.clock&&!G.over){
+    if(G.clock.last){
+      G.clock[G.clock.active]-=(Date.now()-G.clock.last);
+    }
+    G.clock.last=0;
+    if(G.clock[G.clock.active]<=0){
+      G.clock[G.clock.active]=0;stopClock();
+      const loser=G.clock.active,winner=loser==='w'?'b':'w';
+      G.over={title:'Время',text:(loser==='w'?'Белые':'Чёрные')+' просрочили время',winner};
+      hap('err');saveHistory();renderAll();setTimeout(showEnd,200);
+      return;
+    }
+    G.clockHist.push({w:G.clock.w,b:G.clock.b});
+  }
+
   const s=cur(),san=toSAN(s,m);
   G.states.push(apply(s,m));G.moves.push(m);G.sans.push(san);
   G.lastPop=m.t;
   clearSel();
   checkEnd();
+
+  // --- Часы: инкремент + передача ---
+  if(G.clock&&!G.over){
+    const mover=s.turn;
+    G.clock[mover]+=G.tc.inc;
+    G.clock.active=cur().turn;
+    G.clock.last=Date.now();
+    if(!G.clock.timer)startClock();
+  }
+  if(G.over)stopClock();
+
   if(G.over){
     hap(G.over.winner&&G.cfg.mode!=='two'&&G.over.winner!==G.cfg.side?'err':'ok');
     saveHistory();
   }
   else hap(inCheck(cur(),cur().turn)?'warn':(m.cap?'cap':'move'));
   save();
-  pushOnline();
+
+  // --- Онлайн: отправляем ход на сервер ---
+  if(G.cfg.mode==='online'&&G.online&&G.online.active){
+    const mv=sq2s(m.f)+sq2s(m.t)+(m.promo||'').toLowerCase();
+    rpc('move',{id:G.online.id,move:mv})
+      .then(res=>{
+        if(res&&res.finished&&!G.over){
+          G.over={title:'Партия завершена',text:'Сервер: '+(res.title||res.result),
+            winner:res.result==='d'?undefined:res.result};
+          stopClock();renderAll();showEnd();
+        }
+      })
+      .catch(err=>note('Ход не отправлен: '+err.message));
+  }
+
   renderAll();
   if(G.over)setTimeout(showEnd,450);
   else maybeBot();
@@ -199,7 +308,7 @@ function updateStatus(){
   if(G.review){el.textContent='Просмотр: ход '+G.moves.length+' из '+G.rvFull.moves.length;return;}
   if(G.over){
     el.textContent=G.over.title+(G.over.text?'. '+G.over.text:'');
-    if(G.over.title==='Мат'||G.over.resign)el.className='alert';
+    if(G.over.title==='Мат'||G.over.resign||G.over.title==='Время')el.className='alert';
     return;
   }
   if(G.thinking){el.textContent='Бот думает';el.className='think';return;}
@@ -259,6 +368,7 @@ function renderTools(){
 
 function renderAll(){
   renderBoard();renderBars();renderMoves();updateStatus();renderTools();
+  if(G.clock&&!G.review)updateClocks();else hideClocks();
   G.lastPop=-1;
 }
 
@@ -278,16 +388,25 @@ function showEnd(){
 $('#board').addEventListener('click',e=>{
   const el=e.target.closest('.sq');if(el)onSq(+el.dataset.sq);
 });
-$('#btnFlip').addEventListener('click',()=>{G.flip=!G.flip;renderBoard();renderBars();});
+$('#btnFlip').addEventListener('click',()=>{G.flip=!G.flip;renderBoard();renderBars();updateClocks();});
 $('#btnUndo').addEventListener('click',()=>{
   if(!G||G.thinking||G.cfg.mode==='online')return;
   const bot=G.cfg.mode==='bot',min=bot&&G.cfg.side==='b'?1:0;
   if(G.moves.length<=min)return;
   let n=bot?(cur().turn===G.cfg.side?2:1):1;
   n=Math.min(n,G.moves.length-min);
-  for(let i=0;i<n;i++){G.states.pop();G.moves.pop();G.sans.pop();}
+  stopClock();
+  for(let i=0;i<n;i++){
+    G.states.pop();G.moves.pop();G.sans.pop();
+    if(G.clock){
+      const prev=G.clockHist.pop();
+      if(prev){G.clock.w=prev.w;G.clock.b=prev.b;}
+    }
+  }
   G.over=null;G.saved=false;clearSel();gid++;
-  save();renderAll();maybeBot();
+  save();renderAll();
+  if(G.clock)startClock();
+  maybeBot();
 });
 $('#btnResign').addEventListener('click',()=>{
   if(!G||G.over)return;
@@ -300,9 +419,11 @@ $('#btnResign').addEventListener('click',()=>{
   const loser=G.cfg.mode!=='two'?G.cfg.side:cur().turn;
   const winner=loser==='w'?'b':'w';
   G.over={title:'Сдача',text:(loser==='w'?'Белые':'Чёрные')+' сдались',winner,resign:true};
-  gid++;G.thinking=false;
+  gid++;G.thinking=false;stopClock();
   saveHistory();
-  pushOnline();
+  if(G.cfg.mode==='online'&&G.online){
+    rpc('resign',{id:G.online.id}).catch(()=>{});
+  }
   save();renderAll();showEnd();
 });
 function disarm(){
@@ -413,7 +534,7 @@ function rvGo(i){
 }
 function exitReview(){
   const sv=loadSaved();
-  if(sv&&sv.moves.length&&!sv.over)newGame({mode:sv.cfg.mode,side:sv.cfg.side,level:sv.cfg.level},sv.moves);
+  if(sv&&sv.moves.length&&!sv.over)newGame({mode:sv.cfg.mode,side:sv.cfg.side,level:sv.cfg.level,tc:sv.cfg.tc},sv.moves);
   else newGame(menuCfg);
   openMenu();
 }
@@ -425,73 +546,82 @@ $('#rvExit').addEventListener('click',exitReview);
 $('#btnHistory').addEventListener('click',showHistory);
 $('#btnHistClose').addEventListener('click',()=>$('#hist').classList.add('hidden'));
 
-/* ---------- Онлайн-партии (Supabase) ---------- */
+/* ---------- Онлайн (Supabase Edge Function) ---------- */
 function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{if(v==null)localStorage.removeItem(k);else localStorage.setItem(k,v);}catch(e){}}
 function note(msg){try{if(tg&&tg.showAlert){tg.showAlert(msg);return;}}catch(e){}alert(msg);}
 function onlineReady(){const c=window.CFG||{};return !!(c.SUPA_URL&&c.SUPA_KEY&&c.BOT_LINK);}
-function me(){
-  const U=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user;
-  if(U&&U.id)return {id:U.id,name:U.first_name||'Игрок'};
-  let id=+lsGet('chesstg:guest')||0;
-  if(!id){id=1e12+Math.floor(Math.random()*1e9);lsSet('chesstg:guest',String(id));}
-  return {id,name:'Гость'};
-}
-async function api(method,path,body,prefer){
-  const c=window.CFG||{};
-  const h={'apikey':c.SUPA_KEY,'Content-Type':'application/json'};
-  if(String(c.SUPA_KEY).indexOf('eyJ')===0)h.Authorization='Bearer '+c.SUPA_KEY;
-  if(prefer)h.Prefer=prefer;
-  const r=await fetch(c.SUPA_URL+'/rest/v1/'+path,{method,headers:h,body:body?JSON.stringify(body):undefined});
-  if(!r.ok)throw new Error(await r.text());
+function fnUrl(){return (window.CFG.SUPA_URL||'')+'/functions/v1/game';}
+function initData(){return (tg&&tg.initData)||'';}
+
+async function rpc(op,payload){
+  payload=payload||{};
+  const r=await fetch(fnUrl(),{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'apikey':window.CFG.SUPA_KEY,
+      'Authorization':'Bearer '+window.CFG.SUPA_KEY,
+    },
+    body:JSON.stringify(Object.assign({op:op,initData:initData()},payload)),
+  });
   const t=await r.text();
-  return t?JSON.parse(t):null;
+  let data=null;try{data=t?JSON.parse(t):null;}catch(e){}
+  if(!r.ok)throw new Error((data&&data.error)||t||('HTTP '+r.status));
+  return data;
 }
+
 function movesStr(){return G.moves.map(m=>sq2s(m.f)+sq2s(m.t)+(m.promo||'').toLowerCase()).join(' ');}
 function gameLink(id){return window.CFG.BOT_LINK+'?startapp=g_'+id;}
 function stopOnline(){if(G&&G.online&&G.online.timer){clearInterval(G.online.timer);G.online.timer=null;}}
 function refreshResume(){const b=$('#btnResumeOnline');if(b)b.classList.toggle('hidden',!lsGet('chesstg:online'));}
 
-async function pushOnline(){
-  if(!G||!G.online)return;
-  const body={moves:movesStr(),updated_at:new Date().toISOString()};
-  if(G.over){body.status='finished';body.result=G.over.winner||'d';lsSet('chesstg:online',null);}
-  try{await api('PATCH','games?id=eq.'+G.online.id,body);}
-  catch(e){note('Не удалось отправить ход. Проверьте интернет.');}
-}
 function applyRemote(list){
   let changed=false;
   for(let i=G.moves.length;i<list.length;i++){
     const mm=list[i];
     const m=legal(cur()).find(x=>x.f===mm.f&&x.t===mm.t&&(x.promo||'')===(mm.promo||''));
     if(!m)break;
-    G.sans.push(toSAN(cur(),m));G.states.push(apply(cur(),m));G.moves.push(m);G.lastPop=m.t;changed=true;
+    // Часы: списать время соперника и дать инкремент
+    if(G.clock){
+      if(G.clock.last){
+        G.clock[G.clock.active]-=(Date.now()-G.clock.last);
+        if(G.clock[G.clock.active]<0)G.clock[G.clock.active]=0;
+      }
+      G.clock[G.clock.active]+=G.tc.inc;
+      G.clockHist.push({w:G.clock.w,b:G.clock.b});
+    }
+    G.sans.push(toSAN(cur(),m));G.states.push(apply(cur(),m));G.moves.push(m);G.lastPop=m.t;
+    if(G.clock){G.clock.active=cur().turn;G.clock.last=Date.now();}
+    changed=true;
   }
   if(!changed)return;
   clearSel();checkEnd();
   if(G.over){hap(G.over.winner&&G.over.winner!==G.cfg.side?'err':'ok');saveHistory();setTimeout(showEnd,450);}
   else hap(inCheck(cur(),cur().turn)?'warn':'move');
+  if(G.clock&&!G.over)startClock();
   renderAll();
 }
+
 async function pollOnline(){
   const O=G&&G.online;
   if(!O||O.busy)return;
   O.busy=true;
   try{
-    const rows=await api('GET','games?id=eq.'+O.id+'&select=*');
+    const r=await rpc('get',{id:O.id});
     if(!G||G.online!==O)return;
-    const r=rows&&rows[0];
     if(!r)return;
     if(!O.active&&r.status!=='waiting'){
-      O.active=true;O.oppName=(O.color==='w'?r.black_name:r.white_name)||'Соперник';
+      O.active=true;
+      O.oppName=(O.color==='w'?r.black_name:r.white_name)||'Соперник';
       $('#wait').classList.add('hidden');hap('ok');
+      if(G.clock&&!G.clock.timer)startClock();
     }
     const list=parseMoves(r.moves||'');
     if(list.length>G.moves.length)applyRemote(list);
-    else if(list.length<G.moves.length)pushOnline();
-    if(r.status==='finished'&&!G.over&&(r.result==='w'||r.result==='b')){
-      G.over={title:'Сдача',text:(r.result==='w'?'Чёрные':'Белые')+' сдались',winner:r.result,resign:true};
-      saveHistory();renderAll();showEnd();
+    if(r.status==='finished'&&!G.over&&(r.result==='w'||r.result==='b'||r.result==='d')){
+      G.over={title:'Партия завершена',text:'Результат: '+(r.result==='d'?'ничья':(r.result==='w'?'белые':'чёрные')),winner:r.result==='d'?undefined:r.result};
+      stopClock();saveHistory();renderAll();showEnd();
     }
     if(r.status==='finished'&&G.over){stopOnline();lsSet('chesstg:online',null);}
     renderBars();updateStatus();
@@ -504,8 +634,8 @@ function showWait(){
 }
 function startOnline(g,color){
   $('#menu').classList.add('hidden');$('#hist').classList.add('hidden');$('#end').classList.add('hidden');
-  newGame({mode:'online',side:color,level:2});
-  const O=G.online={id:g.id,color,active:g.status!=='waiting',
+  newGame({mode:'online',side:color,level:2,tc:menuCfg.tc});
+  const O=G.online={id:g.id,color:color,active:g.status!=='waiting',
     oppName:(color==='w'?g.black_name:g.white_name)||'',timer:null,busy:false};
   lsSet('chesstg:online',g.id);
   const list=parseMoves(g.moves||'');
@@ -516,29 +646,19 @@ function startOnline(g,color){
   pollOnline();
 }
 async function createOnline(){
-  const side=menuCfg.side==='r'?(Math.random()<.5?'w':'b'):menuCfg.side,u=me();
-  const body=side==='w'?{white_id:u.id,white_name:u.name}:{black_id:u.id,black_name:u.name};
-  const rows=await api('POST','games',body,'return=representation');
-  startOnline(rows[0],side);
+  const side=menuCfg.side==='r'?(Math.random()<.5?'w':'b'):menuCfg.side;
+  const g=await rpc('create',{color:side});
+  startOnline(g,g.color);
 }
 async function joinOnline(id){
   if(!onlineReady()){note('Онлайн-игра не настроена');return;}
   try{
-    const rows=await api('GET','games?id=eq.'+encodeURIComponent(id)+'&select=*');
-    const g=rows&&rows[0];
-    if(!g){note('Партия не найдена');lsSet('chesstg:online',null);refreshResume();return;}
-    const u=me();
-    if(String(g.white_id)===String(u.id)){startOnline(g,'w');return;}
-    if(String(g.black_id)===String(u.id)){startOnline(g,'b');return;}
-    let color,body;
-    if(!g.black_id){color='b';body={black_id:u.id,black_name:u.name,status:'active',updated_at:new Date().toISOString()};}
-    else if(!g.white_id){color='w';body={white_id:u.id,white_name:u.name,status:'active',updated_at:new Date().toISOString()};}
-    else{note('В этой партии уже играют двое');return;}
-    const flt=color==='b'?'&black_id=is.null':'&white_id=is.null';
-    const upd=await api('PATCH','games?id=eq.'+encodeURIComponent(id)+flt,body,'return=representation');
-    if(!upd||!upd.length){note('В этой партии уже играют двое');return;}
-    startOnline(upd[0],color);
-  }catch(e){note('Не удалось подключиться к партии');}
+    const g=await rpc('join',{id:id});
+    startOnline(g,g.color);
+  }catch(e){
+    note(e.message==='full'?'В этой партии уже играют двое':(e.message==='not_found'?'Партия не найдена':'Не удалось подключиться'));
+    lsSet('chesstg:online',null);refreshResume();
+  }
 }
 function shareLink(){
   const link=gameLink(G.online.id);
@@ -552,7 +672,7 @@ function copyLink(){
 }
 $('#btnInvite').addEventListener('click',()=>{
   if(!onlineReady()){note('Онлайн-игра ещё не настроена: заполните config.js');return;}
-  createOnline().catch(()=>note('Не удалось создать партию. Проверьте настройки.'));
+  createOnline().catch(err=>note('Не удалось создать партию: '+err.message));
 });
 $('#btnResumeOnline').addEventListener('click',()=>{const id=lsGet('chesstg:online');if(id)joinOnline(id);});
 $('#btnWaitShare').addEventListener('click',shareLink);
@@ -563,12 +683,16 @@ $('#btnWaitClose').addEventListener('click',()=>$('#wait').classList.add('hidden
 (function init(){
   const sv=loadSaved();
   if(sv&&sv.moves.length&&!sv.over){
-    newGame({mode:sv.cfg.mode,side:sv.cfg.side,level:sv.cfg.level},sv.moves);
+    newGame({mode:sv.cfg.mode,side:sv.cfg.side,level:sv.cfg.level,tc:sv.cfg.tc},sv.moves);
+    if(sv.clock&&G.clock){
+      G.clock.w=sv.clock.w;
+      G.clock.b=sv.clock.b;
+      G.clock.active=sv.clock.active;
+    }
     $('#btnContinue').classList.remove('hidden');
   }else{
     newGame(menuCfg);
   }
-  // сохранённая партия не восстановлена как "завершённая сдачей" — стартуем с меню
   $('#menu').classList.remove('hidden');
   refreshResume();
   const sp=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.start_param;
