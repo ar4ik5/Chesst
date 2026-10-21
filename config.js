@@ -1,5 +1,5 @@
 window.CFG = {
-  SUPA_URL: "https://ufvbromralvuabvnpnga.supabase.co",
-  SUPA_KEY: "sb_publishable_Ai4TQzdsyfrCYdMfw9GrcQ_AwR_TC2g",
-  BOT_LINK: "https://t.me/TChess_bot/wee3"
+  SUPA_URL: "https://lxwczzacorbkywyhhgfh.supabase.co",
+  SUPA_KEY: "sb_publishable_tQkLMHRwJGAM6WejwenKLw_Rdo4mMN-", 
+  BOT_LINK: "https://t.me/CriptoChess_bot" 
 };
