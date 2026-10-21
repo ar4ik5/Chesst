@@ -7,8 +7,9 @@
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<!-- Подключаем сильнейший движок Stockfish 16 WASM -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -18,10 +19,7 @@
   <div class="sp-name">Chess<span>Arena</span></div>
 </div>
 
-<!-- Контейнер приложения -->
 <div id="app">
-  
-  <!-- ШАПКА (Видна на всех вкладках) -->
   <header>
     <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
     <div class="header-right">
@@ -41,7 +39,6 @@
       <p>Сыграй быструю партию или реши задачу</p>
       <button class="cta" onclick="showTab('play')">Играть</button>
     </div>
-
     <div class="section-title">Твоя статистика</div>
     <div class="stats-grid">
       <div class="stat-card">
@@ -55,7 +52,6 @@
         <span>Стрик</span>
       </div>
     </div>
-    
     <div class="section-title" style="margin-top:24px">Быстрый старт</div>
     <div class="play-options">
       <div class="option-row" onclick="startQuick('bot')">
@@ -67,7 +63,7 @@
     </div>
   </div>
 
-  <!-- ВКЛАДКА 2: НОВАЯ ИГРА -->
+  <!-- ВКЛАДКА 2: ИГРАТЬ -->
   <div class="tab-page hidden" id="tab-play">
     <div class="section-title">Новая партия</div>
     <div class="play-options">
@@ -90,43 +86,41 @@
     </div>
 
     <button class="cta" id="btnStartGame" style="margin-top:24px;background:var(--st-live);box-shadow:0 4px 0 #248c3f">Начать партию</button>
-    <button class="cta alt" id="btnInvite" style="margin-top:16px">🤝 Играть с другом (онлайн)</button>
+    <button class="cta alt" id="btnFindMatch" style="margin-top:16px">🔍 Найти соперника (онлайн)</button>
+    <button class="cta alt" id="btnInvite" style="margin-top:8px">🤝 Играть с другом (по ссылке)</button>
   </div>
 
-  <!-- ВКЛАДКА 3: ЗАДАЧИ (Заглушка) -->
+  <!-- ВКЛАДКА 3: ЗАДАЧИ -->
   <div class="tab-page hidden" id="tab-tasks">
     <div class="section-title">Задачи</div>
     <div class="stat-card" style="align-items:flex-start;padding:24px;text-align:left">
       <div class="stat-icon" style="font-size:40px">🧩</div>
       <h3 style="margin:10px 0">Скоро здесь появятся тактики</h3>
-      <p class="sub">Мы готовим базу из 1000+ задач по тактике, мату и эндшпилю. Сможешь тренироваться за ChessCoin.</p>
+      <p class="sub">Мы готовим базу из 1000+ задач по тактике, мату и эндшпилю.</p>
     </div>
   </div>
 
-  <!-- ВКЛАДКА 4: ОБУЧЕНИЕ (Заглушка) -->
+  <!-- ВКЛАДКА 4: УЧЕБА -->
   <div class="tab-page hidden" id="tab-learn">
     <div class="section-title">Учеба</div>
     <div class="stat-card" style="align-items:flex-start;padding:24px;text-align:left">
       <div class="stat-icon" style="font-size:40px">🎓</div>
       <h3 style="margin:10px 0">Уроки шахмат</h3>
-      <p class="sub">Интерактивные уроки от дебюта до эндшпиля. Функция появится в следующем обновлении.</p>
+      <p class="sub">Интерактивные уроки от дебюта до эндшпиля. Скоро.</p>
     </div>
   </div>
 
   <!-- ВКЛАДКА 5: ПРОФИЛЬ -->
   <div class="tab-page hidden" id="tab-profile">
-    <div id="profileContent">
-      <!-- Заполняется через JS -->
-    </div>
+    <div id="profileContent"></div>
   </div>
 
-  <!-- ВКЛАДКА: МАГАЗИН (открывается по клику на монеты) -->
+  <!-- ВКЛАДКА: МАГАЗИН -->
   <div class="tab-page hidden" id="tab-shop">
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
       <span>Магазин</span>
       <button style="color:var(--accent);font-size:14px" onclick="showTab('home')">← Назад</button>
     </div>
-    
     <div class="stat-card" style="flex-direction:row;justify-content:space-between;align-items:center;padding:20px;margin-bottom:20px;background:var(--brand-gradient);color:#fff">
       <div>
         <span style="font-size:12px;text-transform:uppercase;opacity:0.8">Ваш баланс</span>
@@ -134,10 +128,7 @@
       </div>
       <div style="font-size:48px">💎</div>
     </div>
-
-    <div id="shopPacks">
-      <!-- Пакеты рендерятся через JS -->
-    </div>
+    <div id="shopPacks"></div>
   </div>
 
   <!-- НИЖНЕЕ МЕНЮ -->
@@ -150,7 +141,7 @@
   </nav>
 </div>
 
-<!-- ЭКРАН ИГРЫ (скрывает навигацию) -->
+<!-- ЭКРАН ИГРЫ (СКРЫВАЕТ НАВИГАЦИЮ) -->
 <div id="gameView" class="hidden">
   <header>
     <button class="iconbtn" id="btnCloseGame" style="background:none">←</button>
@@ -212,14 +203,58 @@
   </div>
 </div>
 
+<!-- РАЗБОР ПАРТИИ -->
+<div class="overlay hidden" id="review">
+  <div class="sheet" style="max-width:600px">
+    <h2>Разбор партии</h2>
+    <div id="rvLoading" style="text-align:center;padding:24px">
+      <div style="font-size:48px;margin-bottom:12px">🐟</div>
+      <p class="sub">Анализируем партию...</p>
+      <div class="progress-bar"><div class="progress-fill" id="rvProgress"></div></div>
+      <p class="sub" id="rvProgressText" style="margin-top:8px;font-size:13px">0%</p>
+    </div>
+    
+    <div id="rvResults" class="hidden">
+      <div id="rvAccuracy" style="text-align:center;margin-bottom:20px">
+        <div style="font-size:42px;font-weight:800" id="rvAccValue">—</div>
+        <div class="sub" style="margin:0">Точность</div>
+      </div>
+      
+      <div style="margin-bottom:20px;height:160px">
+        <canvas id="rvChart"></canvas>
+      </div>
+      
+      <div class="rv-moves-summary" id="rvSummary"></div>
+      
+      <div style="margin-top:16px">
+        <div class="section-title">Ходы</div>
+        <div id="rvMovesList" style="max-height:300px;overflow-y:auto"></div>
+      </div>
+    </div>
+    
+    <div id="rvControls" style="display:flex;gap:8px;margin-top:20px">
+      <button class="cta alt" id="rvCloseBtn" style="flex:1">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- СКРИПТЫ -->
 <script src="config.js"></script>
 <script src="engine.js"></script>
+<script src="bot.js"></script>
+<script src="review.js"></script>
 <script src="app.js"></script>
 <script>
 (function(){
   var s=document.getElementById('splash');if(!s)return;
   var t0=Date.now(),done=false;
-  function hide(){ if(done)return; done=true; setTimeout(function(){ s.classList.add('out'); setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},450); },Math.max(0,1500-(Date.now()-t0))); }
+  function hide(){
+    if(done)return;done=true;
+    setTimeout(function(){
+      s.classList.add('out');
+      setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},450);
+    },Math.max(0,1500-(Date.now()-t0)));
+  }
   if(document.readyState==='complete')hide();else window.addEventListener('load',hide);
   setTimeout(hide,4000);
 })();
