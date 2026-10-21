@@ -7,6 +7,8 @@
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- Подключаем сильнейший движок Stockfish 16 WASM -->
+<script src="https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish.js"></script>
 </head>
 <body>
 
@@ -19,22 +21,28 @@
 <!-- Контейнер приложения -->
 <div id="app">
   
+  <!-- ШАПКА (Видна на всех вкладках) -->
+  <header>
+    <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
+    <div class="header-right">
+      <button class="coin-btn" onclick="showTab('shop')">
+        <span class="coin-icon">💎</span> <span id="coinBalance">0</span>
+      </button>
+      <button class="iconbtn" onclick="showTab('profile')">
+        <span class="prof-mini" id="homeMiniAvatar">?</span>
+      </button>
+    </div>
+  </header>
+
   <!-- ВКЛАДКА 1: ГЛАВНАЯ -->
   <div class="tab-page" id="tab-home">
-    <header>
-      <div class="brand"><img class="logo" src="logo.svg" alt=""><span class="bt">Chess<span>Arena</span></span></div>
-      <div class="header-icons">
-        <button class="iconbtn" id="btnGoProfile"><span class="prof-mini" id="homeMiniAvatar">?</span></button>
-      </div>
-    </header>
-
     <div class="hero-card">
       <h2>Готов к бою?</h2>
-      <p>Сыграй быструю партию прямо сейчас</p>
+      <p>Сыграй быструю партию или реши задачу</p>
       <button class="cta" onclick="showTab('play')">Играть</button>
     </div>
 
-    <div class="section-title">Статистика</div>
+    <div class="section-title">Твоя статистика</div>
     <div class="stats-grid">
       <div class="stat-card">
         <div class="stat-icon" style="color:var(--st-live)">⚡</div>
@@ -42,34 +50,35 @@
         <span>Рейтинг</span>
       </div>
       <div class="stat-card">
-        <div class="stat-icon">🏆</div>
-        <b id="homeWins">0</b>
-        <span>Побед</span>
+        <div class="stat-icon">🔥</div>
+        <b id="homeStreak">0</b>
+        <span>Стрик</span>
+      </div>
+    </div>
+    
+    <div class="section-title" style="margin-top:24px">Быстрый старт</div>
+    <div class="play-options">
+      <div class="option-row" onclick="startQuick('bot')">
+        <span class="opt-icon">🤖</span><span class="opt-text">Против бота</span><span class="opt-arrow">▶</span>
+      </div>
+      <div class="option-row" onclick="startQuick('blitz')">
+        <span class="opt-icon">⚡</span><span class="opt-text">Блиц 3+2</span><span class="opt-arrow">▶</span>
       </div>
     </div>
   </div>
 
   <!-- ВКЛАДКА 2: НОВАЯ ИГРА -->
   <div class="tab-page hidden" id="tab-play">
-    <header>
-      <h2 style="margin:0;font-size:24px">Новая партия</h2>
-    </header>
-
+    <div class="section-title">Новая партия</div>
     <div class="play-options">
       <div class="option-row" id="playModeBtn">
-        <span class="opt-icon">👤</span>
-        <span class="opt-text" id="playModeText">Против бота</span>
-        <span class="opt-arrow">▼</span>
+        <span class="opt-icon">👤</span><span class="opt-text" id="playModeText">Против бота</span><span class="opt-arrow">▼</span>
       </div>
       <div class="option-row" id="playSideBtn">
-        <span class="opt-icon">⚖️</span>
-        <span class="opt-text" id="playSideText">Белые</span>
-        <span class="opt-arrow">▼</span>
+        <span class="opt-icon">⚖️</span><span class="opt-text" id="playSideText">Белые</span><span class="opt-arrow">▼</span>
       </div>
       <div class="option-row" id="playLevelBtn">
-        <span class="opt-icon">🎚️</span>
-        <span class="opt-text" id="playLevelText">Средний</span>
-        <span class="opt-arrow">▼</span>
+        <span class="opt-icon">🎚️</span><span class="opt-text" id="playLevelText">Средний</span><span class="opt-arrow">▼</span>
       </div>
     </div>
 
@@ -81,42 +90,72 @@
     </div>
 
     <button class="cta" id="btnStartGame" style="margin-top:24px;background:var(--st-live);box-shadow:0 4px 0 #248c3f">Начать партию</button>
-    
     <button class="cta alt" id="btnInvite" style="margin-top:16px">🤝 Играть с другом (онлайн)</button>
   </div>
 
-  <!-- ВКЛАДКА 3: ПРОФИЛЬ -->
-  <div class="tab-page hidden" id="tab-profile">
-    <header>
-      <h2 style="margin:0;font-size:24px">Профиль</h2>
-      <button class="iconbtn" id="btnSettings">⚙️</button>
-    </header>
+  <!-- ВКЛАДКА 3: ЗАДАЧИ (Заглушка) -->
+  <div class="tab-page hidden" id="tab-tasks">
+    <div class="section-title">Задачи</div>
+    <div class="stat-card" style="align-items:flex-start;padding:24px;text-align:left">
+      <div class="stat-icon" style="font-size:40px">🧩</div>
+      <h3 style="margin:10px 0">Скоро здесь появятся тактики</h3>
+      <p class="sub">Мы готовим базу из 1000+ задач по тактике, мату и эндшпилю. Сможешь тренироваться за ChessCoin.</p>
+    </div>
+  </div>
 
-    <div class="prof-header-main" id="profileContent">
-      <!-- Данные рендерятся через JS -->
+  <!-- ВКЛАДКА 4: ОБУЧЕНИЕ (Заглушка) -->
+  <div class="tab-page hidden" id="tab-learn">
+    <div class="section-title">Учеба</div>
+    <div class="stat-card" style="align-items:flex-start;padding:24px;text-align:left">
+      <div class="stat-icon" style="font-size:40px">🎓</div>
+      <h3 style="margin:10px 0">Уроки шахмат</h3>
+      <p class="sub">Интерактивные уроки от дебюта до эндшпиля. Функция появится в следующем обновлении.</p>
+    </div>
+  </div>
+
+  <!-- ВКЛАДКА 5: ПРОФИЛЬ -->
+  <div class="tab-page hidden" id="tab-profile">
+    <div id="profileContent">
+      <!-- Заполняется через JS -->
+    </div>
+  </div>
+
+  <!-- ВКЛАДКА: МАГАЗИН (открывается по клику на монеты) -->
+  <div class="tab-page hidden" id="tab-shop">
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Магазин</span>
+      <button style="color:var(--accent);font-size:14px" onclick="showTab('home')">← Назад</button>
+    </div>
+    
+    <div class="stat-card" style="flex-direction:row;justify-content:space-between;align-items:center;padding:20px;margin-bottom:20px;background:var(--brand-gradient);color:#fff">
+      <div>
+        <span style="font-size:12px;text-transform:uppercase;opacity:0.8">Ваш баланс</span>
+        <div style="font-size:28px;font-weight:800" id="shopCoinBalance">0 💎</div>
+      </div>
+      <div style="font-size:48px">💎</div>
+    </div>
+
+    <div id="shopPacks">
+      <!-- Пакеты рендерятся через JS -->
     </div>
   </div>
 
   <!-- НИЖНЕЕ МЕНЮ -->
   <nav class="bottom-nav" id="bottomNav">
-    <button class="nav-btn active" data-tab="home">
-      <i>🏠</i><span>Главная</span>
-    </button>
-    <button class="nav-btn" data-tab="play">
-      <i>♟️</i><span>Играть</span>
-    </button>
-    <button class="nav-btn" data-tab="profile">
-      <i>👤</i><span>Профиль</span>
-    </button>
+    <button class="nav-btn active" data-tab="home"><i>🏠</i><span>Главная</span></button>
+    <button class="nav-btn" data-tab="play"><i>♟️</i><span>Играть</span></button>
+    <button class="nav-btn" data-tab="tasks"><i>🧩</i><span>Задачи</span></button>
+    <button class="nav-btn" data-tab="learn"><i>🎓</i><span>Учеба</span></button>
+    <button class="nav-btn" data-tab="profile"><i>👤</i><span>Профиль</span></button>
   </nav>
 </div>
 
 <!-- ЭКРАН ИГРЫ (скрывает навигацию) -->
 <div id="gameView" class="hidden">
-  <header style="padding:0 12px">
+  <header>
     <button class="iconbtn" id="btnCloseGame" style="background:none">←</button>
     <div class="brand" style="font-size:16px">Chess Arena</div>
-    <div style="width:44px"></div> <!-- Spacer -->
+    <div style="width:44px"></div>
   </header>
   
   <div class="pbar" id="topBar">
@@ -140,7 +179,7 @@
   </div>
 </div>
 
-<!-- Оверлеи: Выбор опций, Конец игры, Ожидание, Превращение, История -->
+<!-- ОВЕРЛЕИ -->
 <div class="overlay hidden" id="optSelect">
   <div class="sheet">
     <h2 id="optTitle">Выберите</h2>
@@ -155,7 +194,6 @@
     <p class="sub" style="margin:0">Отправьте ссылку другу.</p>
     <div class="linkbox" id="waitLink"></div>
     <button class="cta" id="btnWaitShare">Отправить другу</button>
-    <button class="cta alt" id="btnWaitCopy">Копировать ссылку</button>
     <button class="cta alt" id="btnWaitClose">Отмена</button>
   </div>
 </div>
@@ -168,7 +206,7 @@
   <div class="sheet">
     <h2 id="endTitle"></h2>
     <p class="sub" id="endText" style="margin:0"></p>
-    <p class="sub" id="endElo" style="margin:8px 0 0"></p>
+    <div id="endElo" class="sub" style="margin:8px 0 0;font-weight:700"></div>
     <button class="cta" id="btnAgain">Новая партия</button>
     <button class="cta alt" id="btnView">Посмотреть доску</button>
   </div>
@@ -176,7 +214,6 @@
 
 <script src="config.js"></script>
 <script src="engine.js"></script>
-<script src="bot.js"></script>
 <script src="app.js"></script>
 <script>
 (function(){
