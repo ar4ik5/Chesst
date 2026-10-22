@@ -132,7 +132,10 @@ function checkEnd() {
 
 function save() { if (G && (G.review || G.cfg.mode === 'online')) return; try { localStorage.setItem(SAVE_KEY, JSON.stringify({ cfg: { mode:G.cfg.mode, side:G.cfg.side, level:G.cfg.level, tc:G.cfg.tc }, moves: G.moves.map(m => ({ f:m.f, t:m.t, promo:m.promo || '' })), over: !!(G.over && G.over.resign), clock: G.clock ? { w:G.clock.w, b:G.clock.b, active:G.clock.active } : null })); } catch (e) {} }
 function loadSaved() { try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; const d = JSON.parse(raw); return d && d.cfg && Array.isArray(d.moves) ? d : null; } catch (e) { return null; } }
-
+function setRv(on) {
+  $('#rvBar').classList.toggle('hidden', !on);
+  document.querySelector('.tools').classList.toggle('hidden', on);
+}
 function canInteract() { return G && !G.review && !G.over && !G.thinking && $('#promo').classList.contains('hidden') && (G.cfg.mode !== 'online' || (G.online && G.online.active)) && (G.cfg.mode === 'two' || cur().turn === G.cfg.side); }
 function clearSel() { G.sel = -1; G.legalFrom = []; G.tset = new Set(); }
 function select(sq) { G.sel = sq; G.legalFrom = legal(cur()).filter(m => m.f === sq); G.tset = new Set(G.legalFrom.map(m => m.t)); }
