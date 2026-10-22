@@ -63,7 +63,14 @@ $('#playSideBtn').addEventListener('click', () => { if (menuCfg.mode === 'bot') 
 $('#playLevelBtn').addEventListener('click', () => { if (menuCfg.mode === 'bot') showOpts('Сложность', 'level', [['1','Лёгкий'],['2','Средний'],['3','Сильный'],['4','Мастер (Stockfish)']]); });
 document.querySelectorAll('.tc-seg button').forEach(b => b.addEventListener('click', () => { menuCfg.tc = b.dataset.v; updatePlayUI(); }));
 
-$('#btnStartGame').addEventListener('click', () => { newGame(menuCfg); save(); });
+$('#btnStartGame').addEventListener('click', () => { 
+  try {
+    newGame(menuCfg); 
+    save(); 
+  } catch (err) {
+    alert("Ошибка в коде: " + err.message);
+  }
+});
 $('#btnCloseGame').addEventListener('click', () => { $('#gameView').classList.add('hidden'); $('#bottomNav').classList.remove('hidden'); showTab('home'); stopOnline(); });
 
 function startQuick(type) {
