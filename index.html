@@ -7,9 +7,7 @@
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -261,7 +259,7 @@
     setTimeout(function(){
       s.classList.add('out');
       setTimeout(function(){if(s.parentNode)s.parentNode.removeChild(s);},450);
-    },Math.max(0,1500-(Date.now()-t0)));
+    },Math.max(0,600-(Date.now()-t0)));
   }
   if(document.readyState==='complete')hide();else window.addEventListener('load',hide);
   setTimeout(hide,4000);
