@@ -18,6 +18,14 @@ let shopPacks = [];
 
 const cur = () => G.states[G.states.length - 1];
 
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c])); }
+function safeUrl(u) { return /^https:\/\//i.test(String(u || '')) ? esc(u) : ''; }
+const _scripts = {};
+function loadScript(src) { return _scripts[src] || (_scripts[src] = new Promise((res, rej) => { const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => { delete _scripts[src]; rej(new Error('load ' + src)); }; document.head.appendChild(el); })); }
+function ensureSF() { return window.Stockfish ? Promise.resolve() : loadScript('https://cdn.jsdelivr.net/npm/stockfish@16.0.0/src/stockfish.js'); }
+function ensureLibs() { return Promise.all([ensureSF(), window.Chart ? 0 : loadScript('https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js').catch(() => {})]); }
+function saveHistory() { if (!G || G.saved) return; G.saved = true; lsSet(SAVE_KEY, null); }
+
 /* ---------- НАВИГАЦИЯ ---------- */
 function showTab(id) {
   document.querySelectorAll('.tab-page').forEach(el => el.classList.add('hidden'));
@@ -83,7 +91,7 @@ function startQuick(type) {
 function parseTc(str) { if (!str || str === '0') return null; const [b, i] = String(str).split('+').map(Number); if (!isFinite(b) || b <= 0) return null; return { base: Math.round(b * 1000), inc: Math.round((i || 0) * 1000) }; }
 function startClock() { if (!G || !G.clock || G.over) return; stopClock(); G.clock.active = cur().turn; G.clock.last = Date.now(); G.clock.timer = setInterval(tickClock, 200); updateClocks(); }
 function stopClock() { if (!G || !G.clock) return; if (G.clock.timer) { clearInterval(G.clock.timer); G.clock.timer = null; } }
-function tickClock() { if (!G || !G.clock || G.over) { stopClock(); return; } const active = G.clock.active, elapsed = G.clock.last ? (Date.now() - G.clock.last) : 0; if (G.clock[active] - elapsed <= 0) { G.clock[active] = 0; stopClock(); const winner = active === 'w' ? 'b' : 'w'; G.over = { title:'Время', text:(active === 'w' ? 'Белые' : 'Чёрные') + ' просрочили время', winner }; hap('err'); saveHistory(); renderAll(); setTimeout(showEnd, 200); return; } updateClocks(); }
+function tickClock() { if (!G || !G.clock || G.over) { stopClock(); return; } const active = G.clock.active, elapsed = G.clock.last ? (Date.now() - G.clock.last) : 0; if (G.clock[active] - elapsed <= 0 && G.cfg.mode === 'online') { updateClocks(); const now = Date.now(); if (!G.flagPoll || now - G.flagPoll > 1500) { G.flagPoll = now; pollOnline(); } return; } if (G.clock[active] - elapsed <= 0) { G.clock[active] = 0; stopClock(); const winner = active === 'w' ? 'b' : 'w'; G.over = { title:'Время', text:(active === 'w' ? 'Белые' : 'Чёрные') + ' просрочили время', winner }; hap('err'); saveHistory(); renderAll(); setTimeout(showEnd, 200); return; } updateClocks(); }
 function updateClocks() { if (!G || !G.clock) return; const elapsed = G.clock.last ? (Date.now() - G.clock.last) : 0; const timeOf = c => G.clock[c] - (c === G.clock.active ? elapsed : 0); const fmt = ms => { ms = Math.max(0, ms); const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }; const topC = G.flip ? 'w' : 'b', botC = G.flip ? 'b' : 'w'; const set = (sel, c) => { const el = document.querySelector(sel); if (!el) return; const t = timeOf(c); el.textContent = fmt(t); el.classList.toggle('low', t < 30000); el.classList.toggle('active', c === G.clock.active && !G.over); el.classList.remove('hidden'); }; set('#topBar .who .time', topC); set('#botBar .who .time', botC); }
 function hideClocks() { document.querySelectorAll('.pbar .who .time').forEach(e => e.classList.add('hidden')); }
 
@@ -130,7 +138,7 @@ function checkEnd() {
   else { const k = posKey(s); let n = 0; for (const x of G.states) if (posKey(x) === k) n++; if (n >= 3) G.over = { title:'Ничья', text:'Троекратное повторение' }; }
 }
 
-function save() { if (G && (G.review || G.cfg.mode === 'online')) return; try { localStorage.setItem(SAVE_KEY, JSON.stringify({ cfg: { mode:G.cfg.mode, side:G.cfg.side, level:G.cfg.level, tc:G.cfg.tc }, moves: G.moves.map(m => ({ f:m.f, t:m.t, promo:m.promo || '' })), over: !!(G.over && G.over.resign), clock: G.clock ? { w:G.clock.w, b:G.clock.b, active:G.clock.active } : null })); } catch (e) {} }
+function save() { if (G && G.over) { lsSet(SAVE_KEY, null); return; } if (G && (G.review || G.cfg.mode === 'online')) return; try { localStorage.setItem(SAVE_KEY, JSON.stringify({ cfg: { mode:G.cfg.mode, side:G.cfg.side, level:G.cfg.level, tc:G.cfg.tc }, moves: G.moves.map(m => ({ f:m.f, t:m.t, promo:m.promo || '' })), over: !!(G.over && G.over.resign), clock: G.clock ? { w:G.clock.w, b:G.clock.b, active:G.clock.active } : null })); } catch (e) {} }
 function loadSaved() { try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; const d = JSON.parse(raw); return d && d.cfg && Array.isArray(d.moves) ? d : null; } catch (e) { return null; } }
 function setRv(on) {
   $('#rvBar').classList.toggle('hidden', !on);
@@ -175,18 +183,45 @@ function commit(m) {
   if (G.over) setTimeout(showEnd, 450); else maybeBot();
 }
 
-let stockfish = null;
-function initStockfish() { if (stockfish || !window.Stockfish) return; try { stockfish = Stockfish(); stockfish.onmessage = function(event) { const line = event.data || event; if (typeof line !== 'string') return; if (line.startsWith('bestmove')) { const move = line.split(' ')[1]; if (move && move !== '(none)') { const m = legal(cur()).find(x => sq2s(x.f) + sq2s(x.t) + (x.promo||'').toLowerCase() === move || sq2s(x.f) + sq2s(x.t) === move); if (m) { G.thinking = false; commit(m); } else { G.thinking = false; updateStatus(); } } } }; stockfish.postMessage('uci'); stockfish.postMessage('setoption name Skill Level value 20'); } catch (e) {} }
+let stockfish = null, sfPending = 0;
+function initStockfish() {
+  if (stockfish || !window.Stockfish) return;
+  try {
+    stockfish = Stockfish();
+    stockfish.onmessage = function (event) {
+      const line = event.data || event; if (typeof line !== 'string') return;
+      if (!line.startsWith('bestmove')) return;
+      sfPending = Math.max(0, sfPending - 1);
+      if (sfPending > 0 || !G || G.over || !G.thinking || G.cfg.mode !== 'bot' || cur().turn === G.cfg.side) return;
+      const mv = line.split(' ')[1];
+      let m = mv && mv !== '(none)' ? legal(cur()).find(x => sq2s(x.f) + sq2s(x.t) + (x.promo || '').toLowerCase() === mv) : null;
+      if (!m) m = bestMove(cur(), 3);
+      G.thinking = false; if (m) commit(m); else updateStatus();
+    };
+    stockfish.postMessage('uci');
+    stockfish.postMessage('setoption name Skill Level value 20');
+  } catch (e) { stockfish = null; }
+}
 
 function maybeBot() {
   if (!G || G.over || G.cfg.mode !== 'bot' || cur().turn === G.cfg.side) return;
   G.thinking = true; updateStatus(); const my = gid;
+  const playBuiltin = () => { if (my !== gid || !G || !G.thinking) return; const m = bestMove(cur(), Math.min(G.cfg.level, 3)); G.thinking = false; if (m) commit(m); else updateStatus(); };
   setTimeout(() => {
     if (my !== gid || !G) return;
-    if (G.cfg.level === 4) { initStockfish(); if (stockfish) { stockfish.postMessage('position fen ' + buildFEN(cur())); stockfish.postMessage('go depth 10'); return; } }
-    const m = bestMove(cur(), Math.min(G.cfg.level, 3));
-    if (my !== gid) return; G.thinking = false;
-    if (m) commit(m); else updateStatus();
+    if (G.cfg.level === 4) {
+      ensureSF().then(() => {
+        if (my !== gid || !G || !G.thinking) return;
+        initStockfish();
+        if (!stockfish) { playBuiltin(); return; }
+        sfPending++;
+        stockfish.postMessage('position fen ' + buildFEN(cur()));
+        stockfish.postMessage('go depth 10');
+        setTimeout(() => { if (my === gid && G && G.thinking) playBuiltin(); }, 8000);
+      }).catch(playBuiltin);
+      return;
+    }
+    playBuiltin();
   }, 380);
 }
 
@@ -229,7 +264,7 @@ function userName() { const U = tg && tg.initDataUnsafe && tg.initDataUnsafe.use
 function updateHomeStats() { if (!PROFILE) return; $('#homeElo').textContent = PROFILE.elo; $('#homeStreak').textContent = PROFILE.current_streak || 0; $('#coinBalance').textContent = PROFILE.coins || 0; }
 
 async function loadProfile() { if (!isTelegram()) return null; try { const p = await rpc('profile_get'); PROFILE = p; lsSet(PROF_KEY, JSON.stringify(p)); renderProfileMini(); renderProfileMain(); updateHomeStats(); return p; } catch (e) { const raw = lsGet(PROF_KEY); if (raw) { try { PROFILE = JSON.parse(raw); renderProfileMini(); renderProfileMain(); updateHomeStats(); } catch (x) {} } return null; } }
-function renderProfileMini() { const el = $('#homeMiniAvatar'); if (!el) return; if (PROFILE && PROFILE.photo_url) el.innerHTML = '<img src="' + PROFILE.photo_url + '" alt="">'; else { const n = displayName(); el.textContent = (n[0] || '?').toUpperCase(); } }
+function renderProfileMini() { const el = $('#homeMiniAvatar'); if (!el) return; if (PROFILE && PROFILE.photo_url) el.innerHTML = safeUrl(PROFILE.photo_url) ? '<img src="' + safeUrl(PROFILE.photo_url) + '" alt="">' : esc((displayName()[0] || '?').toUpperCase()); else { const n = displayName(); el.textContent = (n[0] || '?').toUpperCase(); } }
 
 function renderProfileMain() {
   const box = $('#profileContent');
@@ -237,7 +272,7 @@ function renderProfileMain() {
   if (!PROFILE) { box.innerHTML = '<p class="sub" style="text-align:center;margin-top:40px">Загрузка...</p>'; loadProfile(); return; }
   const p = PROFILE, t = tierOf(p.elo), name = displayName(); const total = p.wins + p.losses + p.draws;
   box.innerHTML = `
-    <div class="prof-header-main"><div class="prof-avatar-large">${p.photo_url ? `<img src="${p.photo_url}">` : (name[0] || '?').toUpperCase()}</div><div class="prof-name-large">${name}</div><div class="prof-rank-large" style="color:${t.color}">${t.name} • ${p.elo} Elo</div></div>
+    <div class="prof-header-main"><div class="prof-avatar-large">${safeUrl(p.photo_url) ? `<img src="${safeUrl(p.photo_url)}">` : esc((name[0] || '?').toUpperCase())}</div><div class="prof-name-large">${esc(name)}</div><div class="prof-rank-large" style="color:${t.color}">${esc(t.name)} • ${esc(p.elo)} Elo</div></div>
     <div class="prof-stats-grid"><div class="ps-box"><b>${total}</b><span>Игр</span></div><div class="ps-box win"><b>${p.wins}</b><span>Побед</span></div><div class="ps-box draw"><b>${p.draws}</b><span>Ничьих</span></div><div class="ps-box loss"><b>${p.losses}</b><span>Пораж.</span></div></div>
     <div class="section-title">История партий</div><div id="profHistory" style="margin-bottom:24px"><p class="sub" style="text-align:center">Загрузка...</p></div>
     <div style="width:100%;margin-bottom:16px"><button class="cta alt" onclick="editProfileName()">✏️ Изменить имя</button></div>
@@ -251,10 +286,11 @@ function renderProfileMain() {
   loadHistoryInProfile(); loadNotificationSettings();
 }
 
-async function loadHistoryInProfile() { if (!isTelegram()) return; try { const list = await rpc('history', { limit: 10 }); const box = $('#profHistory'); if (!list || !list.length) { box.innerHTML = '<p class="sub" style="text-align:center">Вы еще не сыграли ни одной партии.</p>'; return; } let html = ''; for (const g of list) { const isWhite = g.white_id === PROFILE.id; const result = g.result; let resColor = 'var(--text-hint)', resSign = '='; if (result === 'd') { resColor = 'var(--text-hint)'; resSign = '½'; } else if ((result === 'w' && isWhite) || (result === 'b' && !isWhite)) { resColor = 'var(--st-live)'; resSign = '+'; } else { resColor = 'var(--destructive)'; resSign = '-'; } const oppName = isWhite ? (g.black_name || 'Соперник') : (g.white_name || 'Соперник'); const oppElo = isWhite ? (g.black_elo || '?') : (g.white_elo || '?'); html += `<div class="option-row" style="padding:12px;margin-bottom:8px;cursor:pointer" onclick="openHistoryReview('${g.id}')"><div style="width:24px;height:24px;border-radius:50%;background:${resColor};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;margin-right:12px">${resSign}</div><div style="flex:1"><div style="font-size:14px;font-weight:600">${oppName} (${oppElo})</div><div style="font-size:12px;color:var(--text-hint)">${g.time_control || 'Без часов'}</div></div></div>`; } box.innerHTML = html; } catch(e) { const box = $('#profHistory'); if (box) box.innerHTML = '<p class="sub" style="text-align:center">Не удалось загрузить историю</p>'; } }
+async function loadHistoryInProfile() { if (!isTelegram()) return; try { const list = await rpc('history', { limit: 10 }); const box = $('#profHistory'); if (!list || !list.length) { box.innerHTML = '<p class="sub" style="text-align:center">Вы еще не сыграли ни одной партии.</p>'; return; } let html = ''; for (const g of list) { const isWhite = g.white_id === PROFILE.id; const result = g.result; let resColor = 'var(--text-hint)', resSign = '='; if (result === 'd') { resColor = 'var(--text-hint)'; resSign = '½'; } else if ((result === 'w' && isWhite) || (result === 'b' && !isWhite)) { resColor = 'var(--st-live)'; resSign = '+'; } else { resColor = 'var(--destructive)'; resSign = '-'; } const oppName = isWhite ? (g.black_name || 'Соперник') : (g.white_name || 'Соперник'); const oppElo = isWhite ? (g.black_elo || '?') : (g.white_elo || '?'); html += `<div class="option-row" style="padding:12px;margin-bottom:8px;cursor:pointer" onclick="openHistoryReview('${esc(g.id)}')"><div style="width:24px;height:24px;border-radius:50%;background:${resColor};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;margin-right:12px">${resSign}</div><div style="flex:1"><div style="font-size:14px;font-weight:600">${esc(oppName)} (${esc(oppElo)})</div><div style="font-size:12px;color:var(--text-hint)">${esc(g.time_control || 'Без часов')}</div></div></div>`; } box.innerHTML = html; } catch(e) { const box = $('#profHistory'); if (box) box.innerHTML = '<p class="sub" style="text-align:center">Не удалось загрузить историю</p>'; } }
 
 window.openHistoryReview = async (gameId) => { try { const g = await rpc('get', { id: gameId }); if (!g || !g.moves) { note('Партия пуста'); return; } const moves = parseMoves(g.moves); const states = [initState()]; const sans = []; for (const mm of moves) { const s = states[states.length - 1]; const lm = legal(s).find(x => x.f === mm.f && x.t === mm.t && (x.promo || '') === (mm.promo || '')); if (!lm) break; sans.push(toSAN(s, lm)); states.push(apply(s, lm)); } const myColor = String(g.white_id) === String(PROFILE.id) ? 'w' : 'b'; showReview(moves, sans, myColor); } catch (e) { note('Не удалось загрузить: ' + e.message); } };
-window.editProfileName = async () => { const old = displayName(); const v = prompt('Введите новое имя (2-30 символов):', old); if (!v || v.trim().length < 2) return; try { const p = await rpc('profile_update', { patch: { display_name: v.trim() } }); PROFILE = p; lsSet(PROF_KEY, JSON.stringify(p)); renderProfileMain(); renderProfileMini(); hap('ok'); } catch (e) { note('Ошибка: ' + e.message); } };
+function askText(title, val) { return new Promise(res => { const o = document.createElement('div'); o.className = 'overlay'; o.innerHTML = '<div class="sheet"><h2>' + esc(title) + '</h2><input id="askIn" maxlength="30" style="width:100%;padding:12px;border-radius:12px;border:1px solid var(--separator);background:var(--bg-secondary);color:var(--text);font:inherit;margin-bottom:12px"><button class="cta" id="askOk">Сохранить</button><button class="cta alt" id="askNo">Отмена</button></div>'; document.body.appendChild(o); const inp = o.querySelector('#askIn'); inp.value = val || ''; inp.focus(); const done = v => { o.remove(); res(v); }; o.querySelector('#askOk').onclick = () => done(inp.value); o.querySelector('#askNo').onclick = () => done(null); }); }
+window.editProfileName = async () => { const old = displayName(); const v = await askText('Новое имя (2–30 символов)', old); if (!v || v.trim().length < 2) return; try { const p = await rpc('profile_update', { patch: { display_name: v.trim() } }); PROFILE = p; lsSet(PROF_KEY, JSON.stringify(p)); renderProfileMain(); renderProfileMini(); hap('ok'); } catch (e) { note('Ошибка: ' + e.message); } };
 
 let NOTIFY = null;
 async function loadNotificationSettings() { if (!isTelegram()) return; try { NOTIFY = await rpc("notifications_get"); renderNotifyStates(); } catch (e) {} }
@@ -262,7 +298,7 @@ function renderNotifyStates() { if (!NOTIFY) return; const set = (key) => { cons
 window.toggleNotify = async (key) => { if (!NOTIFY) return; const patch = {}; patch[key] = !NOTIFY[key]; try { NOTIFY = await rpc("notifications_set", { patch }); renderNotifyStates(); hap('ok'); } catch (e) { note("Не удалось сохранить: " + e.message); } };
 
 /* ---------- МАГАЗИН ---------- */
-async function renderShopPacks() { const box = $('#shopPacks'); if (!shopPacks.length) { try { shopPacks = await rpc('packs', {}, 'payments'); } catch(e) { box.innerHTML = '<p class="sub">Не удалось загрузить магазин.</p>'; return; } } box.innerHTML = ''; for (const p of shopPacks) { const el = document.createElement('div'); el.className = 'pack-card'; el.innerHTML = `<div class="pack-info"><b>${p.coins} 💎</b><span>${p.title}</span></div><div class="pack-price">${p.stars} ⭐</div>`; el.onclick = () => buyPack(p.id); box.appendChild(el); } }
+async function renderShopPacks() { const box = $('#shopPacks'); if (!shopPacks.length) { try { shopPacks = await rpc('packs', {}, 'payments'); } catch(e) { box.innerHTML = '<p class="sub">Не удалось загрузить магазин.</p>'; return; } } box.innerHTML = ''; for (const p of shopPacks) { const el = document.createElement('div'); el.className = 'pack-card'; el.innerHTML = `<div class="pack-info"><b>${esc(p.coins)} 💎</b><span>${esc(p.title)}</span></div><div class="pack-price">${p.stars} ⭐</div>`; el.onclick = () => buyPack(p.id); box.appendChild(el); } }
 async function buyPack(packId) { if (!isTelegram()) { note('Покупка доступна только в Telegram'); return; } try { const res = await rpc('create_invoice', { pack: packId }, 'payments'); if (res && res.link) { if (tg && tg.openInvoice) { tg.openInvoice(res.link, (status) => { if (status === 'paid') { note('Оплата прошла успешно! Монеты зачислены.'); loadProfile(); } else if (status === 'failed') { note('Оплата не прошла'); } }); } else { window.open(res.link, '_blank'); } } } catch (e) { note('Ошибка: ' + e.message); } }
 
 /* ---------- СЕТЬ ---------- */
@@ -328,6 +364,23 @@ function updateMatchmakingTimer(seconds) { const el = $('#mmTimer'); if (!el) re
 async function cancelMatchmaking() { if (MM) { MM.cancelled = true; if (MM.timer) clearInterval(MM.timer); try { await rpc('cancel', {}, 'matchmaking'); } catch (e) {} MM = null; } stopMatchmakingScreen(); }
 function stopMatchmakingScreen() { const el = $('#mmSheet'); if (el) el.remove(); if (MM && MM.timer) { clearInterval(MM.timer); MM.timer = null; } MM = null; }
 
+/* ---------- ВОССТАНОВЛЕНИЕ ПАРТИИ ---------- */
+function offerResume(sv) {
+  const home = $('#tab-home'); if (!home || $('#resumeCard')) return;
+  const d = document.createElement('div'); d.id = 'resumeCard'; d.className = 'option-row'; d.style.margin = '12px 0';
+  d.innerHTML = '<span class="opt-icon">⏯</span><span class="opt-text">Продолжить партию (' + sv.moves.length + ' ходов)</span><span class="opt-arrow">▶</span>';
+  d.onclick = () => { d.remove(); newGame({ mode: sv.cfg.mode, side: sv.cfg.side, level: sv.cfg.level, tc: sv.cfg.tc }, sv.moves.map(m => ({ f: m.f, t: m.t, promo: m.promo || '' }))); if (G.clock && sv.clock && !G.over) { G.clock.w = sv.clock.w; G.clock.b = sv.clock.b; G.clock.active = cur().turn; G.clock.last = Date.now(); startClock(); } };
+  home.insertBefore(d, home.children[1] || null);
+}
+async function resumeOnline(id) {
+  try {
+    const p = PROFILE || await loadProfile();
+    const g = await rpc('get', { id });
+    if (!g || g.status === 'finished' || !p) { lsSet('chesstg:online', null); return; }
+    startOnline(g, String(g.white_id) === String(p.id) ? 'w' : 'b');
+  } catch (e) { lsSet('chesstg:online', null); }
+}
+
 /* ---------- СТАРТ ---------- */
 (function init() {
   updatePlayUI();
@@ -337,4 +390,6 @@ function stopMatchmakingScreen() { const el = $('#mmSheet'); if (el) el.remove()
   const sp = tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param;
   if (sp && sp.indexOf('g_') === 0) joinOnline(sp.slice(2));
   else if (sp === 'profile') showTab('profile');
+  else if (lsGet('chesstg:online')) resumeOnline(lsGet('chesstg:online'));
+  else if (sv && sv.moves.length && !sv.over) offerResume(sv);
 })();
